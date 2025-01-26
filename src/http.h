@@ -44,17 +44,19 @@ enum HTTPParserStatus {
 };
 
 enum HTTPParserState {
-    PARSE_BEGIN,
-    PARSE_REQ_LINE,
-    PARSE_HEADER,
-    PARSE_CLN_WSP,
+    P_METHOD,
+    P_TARGET,
+    P_VERSION,
+    P_HEADERS,
+    P_HEADER,
+    P_DONE
 };
 
 struct ParserState {
     struct HTTPRequest *req;        /* caller allocated */
     struct BufferOps *bops;         /* called allocated */
     enum HTTPParserState state;
-    char *cln;                      /* internally alocated */
+    uint8_t *cln;                      /* internally alocated */
     size_t clnsize;
     size_t cli;
 };
@@ -73,7 +75,7 @@ typedef enum BufferStatus (*BufferOpGetByteFn)(
 typedef int (*BufferOpMatchFn)(
     struct BufferOps *self,
     uint8_t *pattern,
-    size_t *patlen
+    const size_t patlen
 );
 
 struct BufferOps {

@@ -1,33 +1,36 @@
 #ifndef RING_BUFFER_H
 #define RING_BUFFER_H
 
-#include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
-
-typedef uint8_t rbsize_t;
+#include <stddef.h>
 
 struct RingBuffer {
-    rbsize_t size;
-    rbsize_t write_index;
-    rbsize_t read_index;
-    rbsize_t count;
-    uint8_t *buffer;
+    uint8_t *buffer; size_t buffer_size;
+    size_t write_index;
+    size_t read_index;
 };
 
-struct RingBuffer *rb_init(rbsize_t size);
+struct RingBuffer *rb_init(size_t size);
 
-void rb_free(struct RingBuffer *rb);
+void rb_destroy(struct RingBuffer *rb);
 
-int rb_write(struct RingBuffer *rb, const uint8_t *byte);
+bool rb_write(struct RingBuffer *rb, const uint8_t *src, size_t size);
 
-int rb_read(struct RingBuffer *rb, uint8_t *dst);
+bool rb_read(struct RingBuffer *rb, uint8_t *dst, size_t size);bool rb_read(struct RingBuffer *rb, uint8_t *dst, size_t size);
 
-int rb_match(
-    struct RingBuffer *rb,
-    const uint8_t *pattern,
-    const rbsize_t patlen
-);
+static inline size_t rb_count(struct RingBuffer *rb) {
+    return rb->write_index - rb->read_index;
+}
 
-void rb_print(const struct RingBuffer *rb);
+static inline uint8_t *rb_read_ptr(struct RingBuffer *rb, size_t *n) {
+    *n = rb_count(rb);
+    return &rb->buffer[rb->read_index];
+}
+
+static inline uint8_t *rb_write_ptr(struct RingBuffer *rb, size_t *n) {
+    *n = rb->buffer_size - rb_count(rb);    /* bytes available */
+    return &rb->buffer[rb->write_index];
+}
 
 #endif

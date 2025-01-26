@@ -1,81 +1,136 @@
-#include "ring_buffer.h"
+#ifdef __linux__
+#define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
+#include <string.h>
+#include <sys/mman.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <assert.h>
+#include "ring_buffer.h"
 
-struct RingBuffer *rb_init(rbsize_t size) {
-    struct RingBuffer *rb = malloc(sizeof(struct RingBuffer));
-    if (rb == NULL) return NULL;
+struct RingBuffer *rb_init(size_t size) {
+    if ((size % sysconf(_SC_PAGESIZE)) != 0)
+        return NULL;
 
-    rb->buffer = malloc(size);
-    if (rb->buffer == NULL) {
-        free(rb);
+    int fd;
+
+#ifdef __linux__
+    fd = memfd_create("myhttpringbuffer", 0);
+
+    if (fd == -1) {
+        perror("memfd_create failed");
+        return NULL;
+    }
+#else
+    const char *name = "/myhttpringbuffer";
+
+    fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
+
+    if (fd == -1) {
+        perror("shm_open failed");
         return NULL;
     }
 
-    rb->size = size;
+    shm_unlink(name);
+#endif
+
+    if (ftruncate(fd, size) == -1) {
+        perror("ftruncate failed");
+        close(fd);
+        return NULL;
+    }
+
+    uint8_t *addr = mmap(NULL, 2 * size, PROT_NONE,
+                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+    if (addr == MAP_FAILED) {
+        perror("anon mmap failed");
+        close(fd);
+        return NULL;
+    }
+
+    void *res = mmap(addr, size, PROT_READ | PROT_WRITE,
+                     MAP_SHARED | MAP_FIXED, fd, 0);
+
+    if (res == MAP_FAILED) {
+        perror("first half mmap failed");
+        munmap(addr, size * 2);
+        close(fd);
+        return NULL;
+    }
+
+    res = mmap(addr + size, size, PROT_READ | PROT_WRITE,
+                    MAP_SHARED | MAP_FIXED, fd, 0);
+
+    if (res == MAP_FAILED) {
+        perror("second half mmap failed");
+        munmap(addr, size * 2);
+        close(fd);
+        return NULL;
+    }
+
+    struct RingBuffer *rb = malloc(sizeof(struct RingBuffer));
+
+    if (rb == NULL) {
+        perror("malloc failed");
+        munmap(addr, size * 2);
+        close(fd);
+        return NULL;
+    }
+
+    close(fd);
+
+    rb->buffer = addr;
+    rb->buffer_size = size;
     rb->write_index = 0;
     rb->read_index = 0;
-    rb->count = 0;
 
     return rb;
 }
 
-void rb_free(struct RingBuffer *rb) {
-    free(rb->buffer);
+void rb_destroy(struct RingBuffer *rb) {
+    munmap(rb->buffer, 2 * rb->buffer_size);
     free(rb);
 }
 
-int rb_write(struct RingBuffer *rb, const uint8_t *byte) {
-    if (rb->count == rb->size) return 0;
-    rb->buffer[rb->write_index] = *byte;
-    rb->write_index = (rb->write_index + 1) % rb->size;
-    rb->count++;
-    return 1;
+bool rb_write(struct RingBuffer *rb, const uint8_t *src, size_t size) {
+    if (rb->buffer_size - (rb->write_index - rb->read_index) < size)
+        return false;
+
+    memcpy(&rb->buffer[rb->write_index], src, size);
+    rb->write_index += size;
+
+    return true;
 }
 
-int rb_read(struct RingBuffer *rb, uint8_t *dst) {
-    if (rb->count == 0) return 0;
-    *dst = rb->buffer[rb->read_index];
-    rb->read_index = (rb->read_index + 1) % rb->size;
-    rb->count--;
-    return 1;
+bool rb_read(struct RingBuffer *rb, uint8_t *dst, size_t size) {
+    if (rb->write_index - rb->read_index < size)
+        return false;
+
+    memcpy(dst, &rb->buffer[rb->read_index], size);
+    rb->read_index += size;
+
+    if (rb->read_index >= rb->buffer_size) {
+        rb->read_index -= rb->buffer_size;
+        rb->write_index -= rb->buffer_size;
+    }
+
+    return true;
 }
 
-int rb_match(
-    struct RingBuffer *rb,
-    const uint8_t *pattern,
-    const rbsize_t patlen
-) {
-    if (patlen > rb->count) return 0;
-    rbsize_t read_index = rb->read_index;
-    for (int i = 0; i < patlen; i++) {
-        if (pattern[i] != rb->buffer[read_index]) return 0; 
-        read_index = (read_index + 1) % rb->size;
-    }
-    return 1;
+/* testing */
+
+
+static inline char randchar() {
+    return ('A' + (rand() % 26));
 }
 
-void rb_print(const struct RingBuffer *rb) {
-    printf(
-        "size = %u, count = %u, write index = %u, read_index = %u\n\n",
-        rb->size, rb->count, rb->write_index, rb->read_index
-    );
-
-    for (int i = 0; i < rb->size; i++) {
-        if (i == rb->read_index) putchar('r');
-        if (i == rb->write_index) putchar('w');
-        putchar('\t');
-    }
-    printf("\n");
-
-    for (int i = 0; i < rb->size; i++) {
-        printf("%d\t", i);
-    }
-    printf("\n");
-
-    for (int i = 0; i < rb->size; i++) {
-        printf("%c\t", (char) rb->buffer[i]);
-    }
-    printf("\n\n");
+static inline size_t count(struct RingBuffer *rb) {
+    return rb->write_index - rb->read_index;
 }
-

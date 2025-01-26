@@ -1,35 +1,48 @@
-#include <stdlib.h>
 #include <stdio.h>
-#include <stddef.h>
-#include <string.h>
+#include <assert.h>
 #include "ring_buffer.h"
 
 int main() {
-    struct RingBuffer *rb = rb_init(4);
-    memset(rb->buffer, '0', rb->size);
+    printf("page size is %ld bytes\n", sysconf(_SC_PAGESIZE));
+    struct RingBuffer *rb = rb_init(sysconf(_SC_PAGESIZE));
 
-    for (;;) {
-        rb_print(rb);
-        char line[10];
-        printf("Enter cmd (r/w): ");
-        fgets(line, 10, stdin);
-        char cmd = line[0];
-        if (cmd == '\n') continue;
-        if (cmd == 'r') {
-            int res = rb_read(rb, (uint8_t *) &cmd);
-            if (res == 0) printf("Buffer is empty\n");
-        } else if (cmd == 'w') {
-            char towrite = line[2];
-            int res = rb_write(rb, (uint8_t *) &towrite);
-            if (res == 0) printf("Buffer is full\n");
-        } else if (cmd == 'm') {
-            if (rb_match(rb, (uint8_t *) "WOW", 3)) {
-                printf("Found pattern \"WOW\" at current read index\n");
-            } else {
-                printf("Pattern \"WOW\" not found\n");
-            }
-        }
-        printf("\n");
+    for (int i = 0; i < rb->buffer_size; i++) {
+        uint8_t byte = randchar();
+        assert(rb_write(rb, &byte, 1));
     }
+
+    char buffer[16384];
+
+    assert(count(rb) == 4096);
+
+    assert(rb_read(rb, (uint8_t *) buffer, 4090));
+
+    char *lol = "Hello world my name is Vansh";
+
+    assert(rb_write(rb, (uint8_t *) lol, strlen(lol)));
+
+    /* assert(rb_read(rb, (uint8_t *) buffer, 28)); */
+
+    for (int i = 0; i < rb->buffer_size; i++) {
+        char c = rb->buffer[i];
+        printf("[0x%x] = %c", i, c);
+        if (i == rb->read_index)    printf(" (r)");
+        if (i == rb->write_index)   printf(" (w)");
+        putchar('\n');
+    }
+
+    printf("\n---------\n\n");
+
+    for (int i = rb->buffer_size; i < 2 * rb->buffer_size; i++) {
+        char c = rb->buffer[i];
+        printf("[0x%x] = %c", i, c);
+        if (i == rb->read_index)    printf(" (r)");
+        if (i == rb->write_index)   printf(" (w)");
+        putchar('\n');
+    }
+
+    rb_destroy(rb);
+
     return 0;
 }
+

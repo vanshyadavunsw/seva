@@ -8,3 +8,5 @@
 - of course this will have to deal with stuff like EOF. no need to do that if EOF has been received.
 
 there is a massive struggle trying to keep the copies as low as possible and optimizing. 
+
+# DEFINITELY WRITE ABOUT THE RING_BUFFER and how I made it work with shm_create as well! And how you can make it agnostic
