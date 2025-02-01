@@ -2,6 +2,7 @@
 #define HTTP_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "htable.h"
 
 #define MAX_LINE_SIZE 8192
@@ -12,21 +13,23 @@ struct HTTPVersion {
 };
 
 enum HTTPMethod {
-    HTTP_GET,
-    HTTP_POST,
-    HTTP_PUT,
-    HTTP_DELETE,
-    HTTP_HEAD,
-    HTTP_OPTIONS,
-    HTTP_PATCH,
-    HTTP_TRACE,
-    HTTP_CONNECT,
+    HTTP_METHOD_UNKNOWN = -1,
+    HTTP_GET            = 0,
+    HTTP_POST           = 1,
+    HTTP_PUT            = 2,
+    HTTP_DELETE         = 3,
+    HTTP_HEAD           = 4,
+    HTTP_OPTIONS        = 5,
+    HTTP_PATCH          = 6,
+    HTTP_TRACE          = 7,
+    HTTP_CONNECT        = 8,
+    HTTP_METHODS_COUNT  = 9,      /* num of methods */ 
 };
 
 struct HTTPRequest {
     enum HTTPMethod method;
     struct HTTPVersion version;
-    char *target;
+    struct HttpRequestTarget *target;
     struct HeaderTable *headers;
 };
 
@@ -122,5 +125,32 @@ void http_parser_free(struct ParserState *ps);
 struct HTTPRequest *http_request_init();
 
 void http_request_free(struct HTTPRequest *req);
+
+typedef enum SevaStatus {
+    PARSE_OK = 0,
+    PARSE_BAD = -1,
+    PARSE_BAD_METHOD = -2,
+    PARSE_BAD_TARGET = -3,
+    PARSE_BAD_VERSION = -4,
+} SevaStatus;
+
+struct UriSegment {
+    uint8_t *bytes;
+    size_t length;
+};
+
+struct HttpRequestTarget {
+    struct UriSegment **segments;
+    size_t num_segments;
+    uint8_t *query;
+    size_t query_length;
+    bool is_asterisk;   // for a server-wide OPTIONS request
+};
+
+enum SevaStatus parse_request_line(
+    struct HTTPRequest *req,
+    uint8_t *data,
+    size_t length
+);
 
 #endif
