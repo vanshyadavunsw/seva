@@ -128,7 +128,7 @@ void htable_print(struct HeaderTable *ht) {
         printf("[%zu]: ", i);
         struct Header *current = ht->hlist[i];
         while (current != NULL) {
-            printf("(K: %s, V: %s) -> ", current->name, current->value);
+            printf("(K: \"%s\", V: \"%s\") -> ", current->name, current->value);
             current = current->next;
         }
         printf("NULL\n");

@@ -153,4 +153,16 @@ enum SevaStatus parse_request_line(
     size_t length
 );
 
+struct HttpRequestTarget
+*parse_request_target(
+    uint8_t *target_data,
+    size_t target_length
+);
+
+enum SevaStatus parse_header(
+    struct HTTPRequest *req,
+    uint8_t *data,
+    size_t length
+);
+
 #endif
