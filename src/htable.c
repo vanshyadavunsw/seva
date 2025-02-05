@@ -5,11 +5,26 @@
 #include <stdint.h>
 #include "../lib/murmurhash/murmurhash.h"
 #include "htable.h"
+#include <ctype.h>
 
-unsigned long djb2_hash(unsigned char *str);
-unsigned long murmur_hash_wrapper(unsigned char *str);
+unsigned long djb2_hash(const unsigned char *str);
+unsigned long murmur_hash_wrapper(const unsigned char *str);
 
-unsigned long (*hashfunc)(unsigned char *str) = murmur_hash_wrapper;
+void strtolower(char *str) {
+    for (char *p = str; *p != '\0'; p++) {
+        *p = tolower(*p);
+    }
+}
+
+// TODO: deal with strdup fail
+unsigned long hashfunc(const unsigned char *str) {
+    char *lowered = strdup((char *) str);
+    strtolower(lowered);
+    unsigned long hash = murmur_hash_wrapper((unsigned char *) lowered);
+    free(lowered);
+    return hash;
+}
+
 
 struct HeaderTable *htable_init(size_t size) {
     struct HeaderTable *htable = malloc(sizeof(struct HeaderTable));
@@ -27,6 +42,7 @@ struct HeaderTable *htable_init(size_t size) {
 
     htable->size = size;
     htable->nheaders = 0;
+    htable->idcount = 0;
 
     return htable;
 }
@@ -48,7 +64,11 @@ void htable_free(struct HeaderTable *htable) {
     return;
 }
 
-int htable_insert(struct HeaderTable *ht, char *name, char *value) {
+static int htable_insert_impl(
+    struct HeaderTable *ht,
+    char *name, char *value,
+    uint8_t id
+) {
     struct Header *new_header = malloc(sizeof(struct Header));
     if (new_header == NULL) return -1;
 
@@ -67,6 +87,7 @@ int htable_insert(struct HeaderTable *ht, char *name, char *value) {
     new_header->name = namecpy;
     new_header->value = valuecpy;
     new_header->next = NULL;
+    new_header->id = id;
 
     size_t i = hashfunc((unsigned char *) name) % ht->size;
 
@@ -74,13 +95,16 @@ int htable_insert(struct HeaderTable *ht, char *name, char *value) {
         ht->hlist[i] = new_header;
         ht->nheaders++;
     } else {
-        struct Header *current = ht->hlist[i];
-        while (current->next != NULL) {
-            current = current->next;
-        }
-        current->next = new_header;
+        new_header->next = ht->hlist[i];
+        ht->hlist[i] = new_header;
         ht->nheaders++;
     }
+
+    return 0;
+}
+
+int htable_insert(struct HeaderTable *ht, char *name, char *value) {
+    htable_insert_impl(ht, name, value, ht->idcount++);
 
     float lf = ((float) ht->nheaders) / ht->size;
     if (lf > HTABLE_LF_MAX) {
@@ -100,7 +124,7 @@ int htable_resize(struct HeaderTable *ht) {
     for (size_t i = 0; i < ht->size; i++) {
         struct Header *current = ht->hlist[i];
         while (current != NULL) {
-            if (htable_insert(newht, current->name, current->value) == -1) {
+            if (htable_insert_impl(newht, current->name, current->value, current->id) == -1) {
                 htable_free(newht);
                 return -1;
             }
@@ -118,6 +142,81 @@ int htable_resize(struct HeaderTable *ht) {
     return 0;
 }
 
+void htable_query_free(struct Header *head) {
+    struct Header *current = head;
+    struct Header *next;
+
+    while (current != NULL) {
+        next = current->next;
+        free(current->name);
+        free(current->value);
+        free(current);
+        current = next;
+    }
+}
+
+struct Header *htable_query(struct HeaderTable *ht, char *name) {
+    size_t bucket_index = hashfunc((unsigned char *) name) % ht->size;
+
+    struct Header *results_head = NULL;
+    struct Header *current = ht->hlist[bucket_index];
+
+    while (current != NULL) {
+        if (strcasecmp(name, current->name) == 0) {
+            struct Header *copy = malloc(sizeof(struct Header));
+
+            if (copy == NULL)
+                return NULL;
+
+            char *namecpy = strdup(current->name);
+            char *valcpy = strdup(current->value);
+
+            if (namecpy == NULL || valcpy == NULL) {
+                free(namecpy);
+                free(valcpy);
+                free(copy);
+                htable_query_free(results_head);
+                return NULL;
+            }
+
+            copy->name = namecpy;
+            copy->value = valcpy;
+            copy->id = current->id;
+
+            copy->next = results_head;
+            results_head = copy;
+        }
+        current = current->next;
+    }
+
+    return results_head;
+}
+
+int htable_delete(struct HeaderTable *ht, char *name, uint8_t id) {
+    size_t bucket_index = hashfunc((unsigned char *) name) % ht->size;
+    struct Header *current = ht->hlist[bucket_index];
+    struct Header *previous = NULL;
+
+    while (current != NULL) {
+        if (current->id == id) {
+            if (previous == NULL) {
+                ht->hlist[bucket_index] = current->next;
+            } else {
+                previous->next = current->next;
+            }
+            free(current->name);
+            free(current->value);
+            free(current);
+            ht->nheaders--;
+            return 1;
+        }
+        previous = current;
+        current = current->next;
+    }
+
+    return 0;
+}
+
 void htable_print(struct HeaderTable *ht) {
     printf("-----------struct HeaderTable-----------\n");
     printf("size = %zu\n", ht->size);
@@ -128,7 +227,8 @@ void htable_print(struct HeaderTable *ht) {
         printf("[%zu]: ", i);
         struct Header *current = ht->hlist[i];
         while (current != NULL) {
-            printf("(K: \"%s\", V: \"%s\") -> ", current->name, current->value);
+            printf("(K: \"%s\", V: \"%s\", id: %d) -> ", current->name,
+                   current->value, current->id);
             current = current->next;
         }
         printf("NULL\n");
@@ -140,7 +240,7 @@ void htable_print(struct HeaderTable *ht) {
 /*
 * djb2 hash function
 */
-unsigned long djb2_hash(unsigned char *str) {
+unsigned long djb2_hash(const unsigned char *str) {
     unsigned long hash = 5381;
     int c;
 
@@ -150,7 +250,7 @@ unsigned long djb2_hash(unsigned char *str) {
     return hash;
 }
 
-unsigned long murmur_hash_wrapper(unsigned char *str) {
+unsigned long murmur_hash_wrapper(const unsigned char *str) {
     return (unsigned long) murmurhash((char *) str, strlen((char *) str), 0);
 }
 

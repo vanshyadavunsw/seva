@@ -66,7 +66,8 @@ static void http_request_target_free(struct HttpRequestTarget *t) {
  * Returns: void.
  */
 void http_request_free(struct HTTPRequest *req) {
-    http_request_target_free(req->target);
+    if (req->target != NULL)
+        http_request_target_free(req->target);
     htable_free(req->headers);
     free(req);
 }

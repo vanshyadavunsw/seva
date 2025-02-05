@@ -10,6 +10,7 @@
 struct Header {
     char *name;
     char *value;
+    uint8_t id;
     struct Header *next;
 };
 
@@ -17,6 +18,7 @@ struct HeaderTable {
     struct Header **hlist;
     size_t size;
     size_t nheaders;
+    uint8_t idcount;
 };
 
 struct HeaderTable *htable_init(size_t size);
@@ -28,6 +30,12 @@ int htable_resize(struct HeaderTable *ht);
 void htable_free(struct HeaderTable *htable);
 
 void htable_print(struct HeaderTable *ht);
+
+struct Header *htable_query(struct HeaderTable *ht, char *name);
+
+void htable_query_free(struct Header *head);
+
+int htable_delete(struct HeaderTable *ht, char *name, uint8_t id);
 
 #endif
 
