@@ -66,7 +66,7 @@ int main() {
 // Request-line and target parsing test suite
 
 void test_parse_rqline_simple() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
     char *rqline = "POST /lorem/ipsum/dol HTTP/1.1";
 
     parse_request_line(r, (uint8_t *) rqline, strlen(rqline));
@@ -94,7 +94,7 @@ void test_parse_rqline_simple() {
 }
 
 void test_parse_rqline_double_seg() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
     char *rqline = "POST // HTTP/1.1";
 
     parse_request_line(r, (uint8_t *) rqline, strlen(rqline));
@@ -124,7 +124,7 @@ void test_parse_rqline_double_seg() {
 }
 
 void test_parse_rqline_root() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
     char *rqline = "POST / HTTP/1.1";
 
     parse_request_line(r, (uint8_t *) rqline, strlen(rqline));
@@ -151,7 +151,7 @@ void test_parse_rqline_root() {
 }
 
 void test_parse_target_asterisk() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
     char *rqline = "CONNECT * HTTP/1.1";
 
     parse_request_line(r, (uint8_t *) rqline, strlen(rqline));
@@ -174,7 +174,7 @@ void test_parse_target_asterisk() {
 }
 
 void test_parse_target_invalid() {
-    struct HTTPRequest *r;
+    struct HttpRequest *r;
     char *lines[] = {
         "CONNECT ../something HTTP/1.1",
         "CONNECT . HTTP/1.1",
@@ -195,7 +195,7 @@ void test_parse_target_invalid() {
 }
 
 void test_target_complicated() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
     char *rqline = "POST /abc/def//help.php/h%65%6c%6C%6Fworld?foo=%00%FF&bar=lorem HTTP/1.1";
 
     parse_request_line(r, (uint8_t *) rqline, strlen(rqline));
@@ -237,7 +237,7 @@ void test_target_complicated() {
 }
 
 void test_parse_target_invalid_percent() {
-    struct HTTPRequest *r;
+    struct HttpRequest *r;
     char *lines[] = {
         "CONNECT /% HTTP/1.1",
         "CONNECT //% HTTP/1.1",
@@ -270,7 +270,7 @@ void test_invalid_methods() {
     };
 
     for (int i = 0; i < sizeof(invalid_methods)/sizeof(char*); i++) {
-        struct HTTPRequest *r = http_request_init();
+        struct HttpRequest *r = http_request_init();
         int result = parse_request_line(r, (uint8_t *)invalid_methods[i],
                                         strlen(invalid_methods[i]));
         assert(result < 0);
@@ -290,7 +290,7 @@ void test_complex_paths() {
     };
 
     for (int i = 0; i < sizeof(test_cases)/sizeof(char*); i++) {
-        struct HTTPRequest *r = http_request_init();
+        struct HttpRequest *r = http_request_init();
         int result = parse_request_line(r, (uint8_t *)test_cases[i], 
                                         strlen(test_cases[i]));
         assert(result >= 0);
@@ -316,7 +316,7 @@ void test_query_parameters() {
     };
 
     for (int i = 0; i < sizeof(test_cases)/sizeof(test_cases[0]); i++) {
-        struct HTTPRequest *r = http_request_init();
+        struct HttpRequest *r = http_request_init();
         int result = parse_request_line(r, (uint8_t *)test_cases[i].request, 
                                         strlen(test_cases[i].request));
 
@@ -350,7 +350,7 @@ void test_percent_encoding() {
     };
 
     for (int i = 0; i < sizeof(test_cases)/sizeof(test_cases[0]); i++) {
-        struct HTTPRequest *r = http_request_init();
+        struct HttpRequest *r = http_request_init();
         int result = parse_request_line(r, (uint8_t *)test_cases[i].request, 
                                       strlen(test_cases[i].request));
         assert((result >= 0) == test_cases[i].should_succeed);
@@ -362,7 +362,7 @@ void test_percent_encoding() {
 // Header parsing test suite
 
 void test_basic_header() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
 
     char *headers[] = {
         "Host: example.com",
@@ -384,7 +384,7 @@ void test_basic_header() {
 }
 
 void test_basic_header_2() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
 
     struct {
         char *header;
@@ -422,7 +422,7 @@ void test_basic_header_2() {
 // test duplicates, high bytes, duplicates should come up in same search
 
 void test_header_whitespace() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
 
     struct {
         char *header;
@@ -457,7 +457,7 @@ void test_header_whitespace() {
 }
 
 void test_invalid_headers() {
-    struct HTTPRequest *r;
+    struct HttpRequest *r;
 
     char *invalid_headers[] = {
         ":no-header-name",
@@ -484,7 +484,7 @@ void test_invalid_headers() {
 }
 
 void test_header_edge_cases() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
 
     char *edge_headers[] = {
         "X-Empty-Value: ",
@@ -534,7 +534,7 @@ static bool name_val_in_query_cs(struct Header *query, char *name, char *val) {
 }
 
 void test_header_case_nonsensitive() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
 
     char *dup1 = "Content-Length: 147\t\t  ";
     char *dup2 = "content-length: \t\t 148\t\t";
@@ -568,7 +568,7 @@ void test_header_case_nonsensitive() {
 }
 
 void test_header_duplicate_key_diff_val() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
 
     char *dup1 = "Content-Length: 147";
     char *dup2 = "Content-Length: 148";
@@ -598,7 +598,7 @@ void test_header_duplicate_key_diff_val() {
 }
 
 void test_header_dup_key_dup_val() {
-    struct HTTPRequest *r = http_request_init();
+    struct HttpRequest *r = http_request_init();
 
     char *dup1 = "Content-Length: 147";
 

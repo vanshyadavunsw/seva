@@ -18,6 +18,42 @@ static const int hex_to_dec[256] = {
     ['a'] = 10, ['b'] = 11, ['c'] = 12, ['d'] = 13, ['e'] = 14, ['f'] = 15
 };
 
+static inline const char *http_method_enum_to_str(enum HttpMethod method) {
+    static const char *HTTP_METHOD_STRINGS[] = {
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "HEAD",
+        "OPTIONS",
+        "PATCH",
+        "TRACE",
+        "CONNECT"
+    };
+
+    return HTTP_METHOD_STRINGS[method];
+}
+
+enum State {
+    PARSING_METHOD,
+    PARSING_TARGET,
+    PARSING_VERSION,
+};
+
+static enum HttpMethod
+get_method_from_bytes(
+    uint8_t *data,
+    size_t datalen
+) {
+    for (enum HttpMethod i = 0; i < HTTP_METHODS_COUNT; i++) {
+        const char *mstr = http_method_enum_to_str(i);
+        size_t mstrlen = strlen(mstr); 
+        if (mstrlen == datalen && memcmp(data, mstr, mstrlen) == 0)
+            return i;
+    }
+    return HTTP_METHOD_UNKNOWN;
+}
+
 /**
  * Initialize a new HTTP Request structure.
  *
@@ -26,8 +62,8 @@ static const int hex_to_dec[256] = {
  *
  * Returns: a pointer to the new struct HTTPRequest.
  */
-struct HTTPRequest *http_request_init() {
-    struct HTTPRequest *req = malloc(sizeof(struct HTTPRequest));
+struct HttpRequest *http_request_init() {
+    struct HttpRequest *req = malloc(sizeof(struct HttpRequest));
     if (req == NULL) return NULL;
 
     struct HeaderTable *headers = htable_init(INIT_HTABLE_BUCKETS);
@@ -36,7 +72,7 @@ struct HTTPRequest *http_request_init() {
         return NULL;
     }
 
-    memset(req, 0, sizeof(struct HTTPRequest));
+    memset(req, 0, sizeof(struct HttpRequest));
 
     req->headers = headers;
     req->target = NULL;
@@ -65,98 +101,13 @@ static void http_request_target_free(struct HttpRequestTarget *t) {
  *
  * Returns: void.
  */
-void http_request_free(struct HTTPRequest *req) {
+void http_request_free(struct HttpRequest *req) {
     if (req->target != NULL)
         http_request_target_free(req->target);
     htable_free(req->headers);
     free(req);
 }
 
-/**
- * Initialize an HTTP Parser's state structure.
- * 
- * Parameters:
- *   - bops: a pointer to a buffer operations structure that implements
- *           the necessary buffer operations.
- *   - req:  a pointer to an HTTP request structure.
- *
- *  The BufferOps and HTTPRequest structs must be freed by the caller.
- *
- * Returns: a pointer to the new struct ParserState.
- */
-struct ParserState *http_parser_init(
-    struct BufferOps *bops,
-    struct HTTPRequest *req
-) {
-    struct ParserState *ps = malloc(sizeof(struct ParserState));
-    if (ps == NULL) return NULL;
-
-    ps->bops = bops;
-    ps->req = req;
-    ps->state = P_METHOD;
-
-    uint8_t *cln = malloc(MAX_LINE_SIZE);
-    if (cln == NULL) {
-        free(ps);
-        return NULL;
-    }
-
-    ps->cln = cln;
-    ps->clnsize = MAX_LINE_SIZE;
-    ps->cli = 0;
-
-    return ps;
-}
-
-/**
- * Cleanup and free a parser state struct. Only deallocates the internal parser 
- * buffers. The request and buffer operations structures are caller-managed.
- *
- * Parameters:
- *   - ps: a pointer to a struct ParserState.
- *
- * Returns: void.
- */
-void http_parser_free(struct ParserState *ps) {
-    free(ps->cln);
-    free(ps);
-}
-
-static inline const char *http_method_enum_to_str(enum HTTPMethod method) {
-    static const char *HTTP_METHOD_STRINGS[] = {
-        "GET",
-        "POST",
-        "PUT",
-        "DELETE",
-        "HEAD",
-        "OPTIONS",
-        "PATCH",
-        "TRACE",
-        "CONNECT"
-    };
-
-    return HTTP_METHOD_STRINGS[method];
-}
-
-enum State {
-    PARSING_METHOD,
-    PARSING_TARGET,
-    PARSING_VERSION,
-};
-
-static enum HTTPMethod
-get_method_from_bytes(
-    uint8_t *data,
-    size_t datalen
-) {
-    for (enum HTTPMethod i = 0; i < HTTP_METHODS_COUNT; i++) {
-        const char *mstr = http_method_enum_to_str(i);
-        size_t mstrlen = strlen(mstr); 
-        if (mstrlen == datalen && memcmp(data, mstr, mstrlen) == 0)
-            return i;
-    }
-    return HTTP_METHOD_UNKNOWN;
-}
 
 struct HttpRequestTarget
 *parse_request_target(
@@ -388,7 +339,7 @@ cleanup_seg_list:
 }
 
 enum SevaStatus parse_header(
-    struct HTTPRequest *req,
+    struct HttpRequest *req,
     uint8_t *data,
     size_t length
 ) {
@@ -496,7 +447,7 @@ enum SevaStatus parse_header(
 
 enum SevaStatus
 parse_request_line(
-    struct HTTPRequest *req,
+    struct HttpRequest *req,
     uint8_t *data,
     size_t length
 ) {
@@ -515,7 +466,7 @@ parse_request_line(
                     if (i == 0)
                         return PARSE_BAD_METHOD;
 
-                    enum HTTPMethod method = get_method_from_bytes(data, i);
+                    enum HttpMethod method = get_method_from_bytes(data, i);
 
                     if (method == HTTP_METHOD_UNKNOWN)
                         return PARSE_BAD_METHOD;
