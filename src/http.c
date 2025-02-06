@@ -482,7 +482,11 @@ enum SevaStatus parse_header(
         val_str[val_len] = '\0';
     }
 
-    htable_insert(req->headers, name_str, val_str);
+    if (htable_insert(req->headers, name_str, val_str) < 0) {
+        free(name_str);
+        free(val_str);
+        return PARSE_BAD;
+    }
 
     free(name_str);
     free(val_str);

@@ -39,5 +39,3 @@ int htable_delete(struct HeaderTable *ht, char *name, uint8_t id);
 
 #endif
 
-
-

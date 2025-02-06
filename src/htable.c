@@ -104,7 +104,8 @@ static int htable_insert_impl(
 }
 
 int htable_insert(struct HeaderTable *ht, char *name, char *value) {
-    htable_insert_impl(ht, name, value, ht->idcount++);
+    int res = htable_insert_impl(ht, name, value, ht->idcount++);
+    if (res < 0) return res;
 
     float lf = ((float) ht->nheaders) / ht->size;
     if (lf > HTABLE_LF_MAX) {
