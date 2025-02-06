@@ -3,7 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdint.h>
-#include "../lib/murmurhash/murmurhash.h"
+#include "../vendor/murmurhash.h"
 #include "htable.h"
 #include <ctype.h>
 
