@@ -3,54 +3,29 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
-#include "htable.h"
 #include "http.h"
+#include "utils.h"
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
 
-int main() {
-    struct HttpRequest *req = http_request_init();
+void print_bsv(struct ByteSliceVector *v) {
+    printf("count = %zu, capacity = %zu\n", v->count, v->capacity);
+    printf("\"");
+    for (size_t i = 0; i < v->count; i++) {
+        struct ByteSlice *slice = v->array[i];
+        for (size_t j = 0; j < slice->length; j++) {
+            putchar(slice->data[j]);
+        }
+        putchar(',');
+    }
+    printf("\"\n");
+}
 
-    char *header = "Content-Length:\t\t\t \t hi!!!!!  \t\t";
-    printf("%s\n", header);
-
-    int res = parse_header(req, (uint8_t *) header, strlen(header));
-
-    header = "Accept:application/json";
-    res = parse_header(req, (uint8_t *) header, strlen(header));
-
-    assert(res >= 0);
-
-    htable_print(req->headers);
-
+int main(void) {
+    char *data = "  \t, , hiya ,, ,    ,some   , insane   , list  , wow! ,,,, boo, hiya";
+    struct ByteSliceVector *v = tokenize_cslist((uint8_t *) data, strlen(data));
+    assert(v != NULL);
+    print_bsv(v);
     return 0;
 }
-
-void print_segments(struct HttpRequestTarget *targ) {
-    for (int i = 0; i < targ->num_segments; i++) {
-        struct UriSegment *seg = targ->segments[i];
-        printf("Segment num = %d, num bytes = %zu\n", i, seg->length);
-        for (int j = 0; j < seg->length; j++) {
-            uint8_t byte = seg->bytes[j];
-            printf("\t[Byte %d]:\t", j);
-            printf("%02x ", byte);
-            if (isprint(byte)) {
-                putchar(byte);
-            }
-            putchar('\n');
-        }
-    }
-
-    printf("Query exists = %d, query len = %zu\n", targ->query != NULL, targ->query_length);
-    for (int i = 0; i < targ->query_length; i++) {
-            uint8_t byte = targ->query[i];
-            printf("\t[Byte %d]:\t", i);
-            printf("%02x ", byte);
-            if (isprint(byte)) {
-                putchar(byte);
-            }
-            putchar('\n');
-    }
-}
-

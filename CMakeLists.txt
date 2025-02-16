@@ -3,7 +3,11 @@ cmake_minimum_required(VERSION 3.10)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(Seva)
 
-set(CMAKE_C_STANDARD 11)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
+endif()
+
+set(CMAKE_C_STANDARD 23)
 
 set(MURMURHASH_INCLUDE_DIR vendor/murmurhash)
 set(MURMURHASH_SOURCES vendor/murmurhash.c)
@@ -12,6 +16,7 @@ set(APP_SOURCES
     src/htable.c
     src/http.c
     src/ring_buffer.c
+    src/utils.c
 )
 
 add_executable(seva src/main.c ${APP_SOURCES} ${MURMURHASH_SOURCES})

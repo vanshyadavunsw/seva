@@ -124,13 +124,3 @@ bool rb_read(struct RingBuffer *rb, uint8_t *dst, size_t size) {
     return true;
 }
 
-/* testing */
-
-
-static inline char randchar() {
-    return ('A' + (rand() % 26));
-}
-
-static inline size_t count(struct RingBuffer *rb) {
-    return rb->write_index - rb->read_index;
-}

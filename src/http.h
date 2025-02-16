@@ -33,17 +33,20 @@ struct HttpRequest {
     struct HeaderTable *headers;
 };
 
-struct HttpRequest *http_request_init();
+struct HttpRequest *http_request_init(void);
 
 void http_request_free(struct HttpRequest *req);
 
 typedef enum SevaStatus {
-    PARSE_OK = 0,
-    PARSE_BAD = -1,
-    PARSE_BAD_METHOD = -2,
-    PARSE_BAD_TARGET = -3,
-    PARSE_BAD_VERSION = -4,
-} SevaStatus;
+    SEVA_OK = 0,
+    SEVA_PARSE_BAD = -1,
+    SEVA_PARSE_BAD_METHOD = -2,
+    SEVA_PARSE_BAD_TARGET = -3,
+    SEVA_PARSE_BAD_VERSION = -4,
+    SEVA_PARSE_BAD_REQUEST = -5,
+    SEVA_NOMEM = -6,
+    SEVA_ERROR_GENERIC = -7,
+} seva_status_t;
 
 struct UriSegment {
     uint8_t *bytes;
@@ -55,7 +58,7 @@ struct HttpRequestTarget {
     size_t num_segments;
     uint8_t *query;
     size_t query_length;
-    bool is_asterisk;   // for a server-wide OPTIONS request
+    bool is_asterisk;
 };
 
 enum SevaStatus parse_request_line(
@@ -72,8 +75,13 @@ struct HttpRequestTarget
 
 enum SevaStatus parse_header(
     struct HttpRequest *req,
-    uint8_t *data,
+    const uint8_t *data,
     size_t length
 );
+
+/* exposed for testing only */
+
+struct ByteSliceVector *
+tokenize_cslist(uint8_t *data, size_t length);
 
 #endif

@@ -5,7 +5,7 @@
 
 #define TEST_MODULE_NAME "http"
 
-void log_test_start() {
+void log_test_start(void) {
     printf("Testing module %s\n", TEST_MODULE_NAME);
 }
 
@@ -13,28 +13,27 @@ void log_success(char *name) {
     printf("[PASS] test \"%s\" succeeded.\n", name);
 }
 
-void test_parse_rqline_simple();
-void test_parse_rqline_root();
-void test_parse_rqline_double_seg();
-void test_parse_target_asterisk();
-void test_parse_target_invalid();
-void test_target_complicated();
-void test_parse_target_invalid_percent();
-void test_invalid_methods();
-void test_complex_paths();
-void test_query_parameters();
-void test_percent_encoding();
+void test_parse_rqline_simple(void);
+void test_parse_rqline_root(void);
+void test_parse_rqline_double_seg(void);
+void test_parse_target_asterisk(void);
+void test_parse_target_invalid(void);
+void test_target_complicated(void);
+void test_parse_target_invalid_percent(void);
+void test_invalid_methods(void);
+void test_complex_paths(void);
+void test_query_parameters(void);
+void test_percent_encoding(void);
+void test_basic_header(void);
+void test_basic_header_2(void);
+void test_header_whitespace(void);
+void test_invalid_headers(void);
+void test_header_edge_cases(void);
+void test_header_case_nonsensitive(void);
+void test_header_duplicate_key_diff_val(void);
+void test_header_dup_key_dup_val(void);
 
-void test_basic_header();
-void test_basic_header_2();
-void test_header_whitespace();
-void test_invalid_headers();
-void test_header_edge_cases();
-void test_header_case_nonsensitive();
-void test_header_duplicate_key_diff_val();
-void test_header_dup_key_dup_val();
-
-int main() {
+int main(void) {
     log_test_start();
 
     test_parse_rqline_simple();
@@ -65,7 +64,7 @@ int main() {
 
 // Request-line and target parsing test suite
 
-void test_parse_rqline_simple() {
+void test_parse_rqline_simple(void) {
     struct HttpRequest *r = http_request_init();
     char *rqline = "POST /lorem/ipsum/dol HTTP/1.1";
 
@@ -93,7 +92,7 @@ void test_parse_rqline_simple() {
     log_success("parse request line simple");
 }
 
-void test_parse_rqline_double_seg() {
+void test_parse_rqline_double_seg(void) {
     struct HttpRequest *r = http_request_init();
     char *rqline = "POST // HTTP/1.1";
 
@@ -123,7 +122,7 @@ void test_parse_rqline_double_seg() {
     log_success("target is '//'");
 }
 
-void test_parse_rqline_root() {
+void test_parse_rqline_root(void) {
     struct HttpRequest *r = http_request_init();
     char *rqline = "POST / HTTP/1.1";
 
@@ -150,7 +149,7 @@ void test_parse_rqline_root() {
     log_success("parse request line with target as root");
 }
 
-void test_parse_target_asterisk() {
+void test_parse_target_asterisk(void) {
     struct HttpRequest *r = http_request_init();
     char *rqline = "CONNECT * HTTP/1.1";
 
@@ -173,7 +172,7 @@ void test_parse_target_asterisk() {
     log_success("parse asterisk form target");
 }
 
-void test_parse_target_invalid() {
+void test_parse_target_invalid(void) {
     struct HttpRequest *r;
     char *lines[] = {
         "CONNECT ../something HTTP/1.1",
@@ -184,7 +183,7 @@ void test_parse_target_invalid() {
         "CONNECT HTTP/1.1",
     };
 
-    for (int i = 0; i < (sizeof(lines) / sizeof(char *)); i++) {
+    for (size_t i = 0; i < (sizeof(lines) / sizeof(char *)); i++) {
         r = http_request_init();
         int res = parse_request_line(r, (uint8_t *) lines[i], strlen(lines[i]));
         assert (res < 0);
@@ -194,7 +193,7 @@ void test_parse_target_invalid() {
     log_success("invalid targets");
 }
 
-void test_target_complicated() {
+void test_target_complicated(void) {
     struct HttpRequest *r = http_request_init();
     char *rqline = "POST /abc/def//help.php/h%65%6c%6C%6Fworld?foo=%00%FF&bar=lorem HTTP/1.1";
 
@@ -236,7 +235,7 @@ void test_target_complicated() {
     log_success("test target complicated with hex decoding");
 }
 
-void test_parse_target_invalid_percent() {
+void test_parse_target_invalid_percent(void) {
     struct HttpRequest *r;
     char *lines[] = {
         "CONNECT /% HTTP/1.1",
@@ -248,7 +247,7 @@ void test_parse_target_invalid_percent() {
         "CONNECT /%%% HTTP/1.1",
     };
 
-    for (int i = 0; i < (sizeof(lines) / sizeof(char *)); i++) {
+    for (size_t i = 0; i < (sizeof(lines) / sizeof(char *)); i++) {
         r = http_request_init();
         int res = parse_request_line(r, (uint8_t *) lines[i], strlen(lines[i]));
         assert (res < 0);
@@ -258,7 +257,7 @@ void test_parse_target_invalid_percent() {
     log_success("invalid hex encodings");
 }
 
-void test_invalid_methods() {
+void test_invalid_methods(void) {
     const char *invalid_methods[] = {
         "INVALID / HTTP/1.1",
         "Get / HTTP/1.1",
@@ -269,7 +268,7 @@ void test_invalid_methods() {
         "GET  / HTTP/1.1"
     };
 
-    for (int i = 0; i < sizeof(invalid_methods)/sizeof(char*); i++) {
+    for (size_t i = 0; i < sizeof(invalid_methods)/sizeof(char*); i++) {
         struct HttpRequest *r = http_request_init();
         int result = parse_request_line(r, (uint8_t *)invalid_methods[i],
                                         strlen(invalid_methods[i]));
@@ -279,7 +278,7 @@ void test_invalid_methods() {
     log_success("invalid HTTP methods");
 }
 
-void test_complex_paths() {
+void test_complex_paths(void) {
     const char *test_cases[] = {
         "GET /a/bb/ccc/dddd HTTP/1.1",
         "GET /segment//between/empty HTTP/1.1",
@@ -289,7 +288,7 @@ void test_complex_paths() {
         "GET /path/with./dots/../in.it HTTP/1.1"
     };
 
-    for (int i = 0; i < sizeof(test_cases)/sizeof(char*); i++) {
+    for (size_t i = 0; i < sizeof(test_cases)/sizeof(char*); i++) {
         struct HttpRequest *r = http_request_init();
         int result = parse_request_line(r, (uint8_t *)test_cases[i], 
                                         strlen(test_cases[i]));
@@ -301,7 +300,7 @@ void test_complex_paths() {
     log_success("complex request paths");
 }
 
-void test_query_parameters() {
+void test_query_parameters(void) {
     struct {
         const char *request;
         const uint8_t *expected_query;
@@ -315,7 +314,7 @@ void test_query_parameters() {
         { "GET /path?q=a+b HTTP/1.1", (uint8_t *) "q=a+b", 5 },
     };
 
-    for (int i = 0; i < sizeof(test_cases)/sizeof(test_cases[0]); i++) {
+    for (size_t i = 0; i < sizeof(test_cases)/sizeof(test_cases[0]); i++) {
         struct HttpRequest *r = http_request_init();
         int result = parse_request_line(r, (uint8_t *)test_cases[i].request, 
                                         strlen(test_cases[i].request));
@@ -332,7 +331,7 @@ void test_query_parameters() {
     log_success("query parameter parsing");
 }
 
-void test_percent_encoding() {
+void test_percent_encoding(void) {
     struct {
         const char* request;
         bool should_succeed;
@@ -349,7 +348,7 @@ void test_percent_encoding() {
         { "GET /%G2 HTTP/1.1", false },
     };
 
-    for (int i = 0; i < sizeof(test_cases)/sizeof(test_cases[0]); i++) {
+    for (size_t i = 0; i < sizeof(test_cases)/sizeof(test_cases[0]); i++) {
         struct HttpRequest *r = http_request_init();
         int result = parse_request_line(r, (uint8_t *)test_cases[i].request, 
                                       strlen(test_cases[i].request));
@@ -361,7 +360,7 @@ void test_percent_encoding() {
 
 // Header parsing test suite
 
-void test_basic_header() {
+void test_basic_header(void) {
     struct HttpRequest *r = http_request_init();
 
     char *headers[] = {
@@ -372,7 +371,7 @@ void test_basic_header() {
         "Connection: keep-alive"
     };
 
-    for (int i = 0; i < sizeof(headers) / sizeof(char*); i++) {
+    for (size_t i = 0; i < sizeof(headers) / sizeof(char*); i++) {
         int result = parse_header(r, (uint8_t *) headers[i], strlen(headers[i]));
         assert(result >= 0);
     }
@@ -383,7 +382,7 @@ void test_basic_header() {
     log_success("basic header parsing");
 }
 
-void test_basic_header_2() {
+void test_basic_header_2(void) {
     struct HttpRequest *r = http_request_init();
 
     struct {
@@ -400,7 +399,7 @@ void test_basic_header_2() {
             "Contains-High-Bytes", "Some \x80\x81\xFF value" },
     };
 
-    for (int i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         int result = parse_header(r, (uint8_t *) cases[i].header, strlen(cases[i].header));
         assert(result >= 0);
 
@@ -421,7 +420,7 @@ void test_basic_header_2() {
 
 // test duplicates, high bytes, duplicates should come up in same search
 
-void test_header_whitespace() {
+void test_header_whitespace(void) {
     struct HttpRequest *r = http_request_init();
 
     struct {
@@ -437,7 +436,7 @@ void test_header_whitespace() {
         { "Random-Header: \t\t  \x81wowza \t   ", "Random-Header", "\x81wowza" }
     };
 
-    for (int i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         int result = parse_header(r, (uint8_t *) cases[i].header, strlen(cases[i].header));
         assert(result >= 0);
 
@@ -456,7 +455,7 @@ void test_header_whitespace() {
     log_success("test header whitespace parsing");
 }
 
-void test_invalid_headers() {
+void test_invalid_headers(void) {
     struct HttpRequest *r;
 
     char *invalid_headers[] = {
@@ -471,7 +470,7 @@ void test_invalid_headers() {
         " WhiteSpaceInBeginning: Hi"
     };
 
-    for (int i = 0; i < sizeof(invalid_headers) / sizeof(char *); i++) {
+    for (size_t i = 0; i < sizeof(invalid_headers) / sizeof(char *); i++) {
         r = http_request_init();
         int result = parse_header(
             r, (uint8_t *) invalid_headers[i], strlen(invalid_headers[i])
@@ -483,7 +482,7 @@ void test_invalid_headers() {
     log_success("invalid header detection");
 }
 
-void test_header_edge_cases() {
+void test_header_edge_cases(void) {
     struct HttpRequest *r = http_request_init();
 
     char *edge_headers[] = {
@@ -495,11 +494,11 @@ void test_header_edge_cases() {
         "X-Header: abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     };
 
-    for (int i = 0; i < sizeof(edge_headers) / sizeof(char *); i++) {
+    for (size_t i = 0; i < sizeof(edge_headers) / sizeof(char *); i++) {
         int result = parse_header(
             r, (uint8_t *) edge_headers[i], strlen(edge_headers[i])
         );
-        assert(result == PARSE_OK);
+        assert(result >= 0);
     }
 
     assert(r->headers->nheaders == 6);
@@ -533,7 +532,7 @@ static bool name_val_in_query_cs(struct Header *query, char *name, char *val) {
     return false;
 }
 
-void test_header_case_nonsensitive() {
+void test_header_case_nonsensitive(void) {
     struct HttpRequest *r = http_request_init();
 
     char *dup1 = "Content-Length: 147\t\t  ";
@@ -550,7 +549,6 @@ void test_header_case_nonsensitive() {
     assert(res >= 0);
 
     struct Header *query = htable_query(r->headers, "Content-Length");
-    struct Header *current = query;
 
     assert(count_query_result_count(query) == 3);
 
@@ -567,7 +565,7 @@ void test_header_case_nonsensitive() {
     log_success("duplicate non-case-sensitive");
 }
 
-void test_header_duplicate_key_diff_val() {
+void test_header_duplicate_key_diff_val(void) {
     struct HttpRequest *r = http_request_init();
 
     char *dup1 = "Content-Length: 147";
@@ -597,7 +595,7 @@ void test_header_duplicate_key_diff_val() {
     log_success("header duplicate same key different value");
 }
 
-void test_header_dup_key_dup_val() {
+void test_header_dup_key_dup_val(void) {
     struct HttpRequest *r = http_request_init();
 
     char *dup1 = "Content-Length: 147";

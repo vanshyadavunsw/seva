@@ -7,13 +7,16 @@
 #include "abnf.h"
 #include "http.h"
 #include "htable.h"
+#include "utils.h"
 
 #define INIT_SEGMENT_ARR_SIZE 20
 #define INIT_HTABLE_BUCKETS 20
+#define INIT_CSTOKENS_ARR_SIZE 5
+#define CONTENT_LENGTH_MAX 16384
 
 static const int hex_to_dec[256] = {
-    ['0'] = 0,  ['1'] = 1,  ['2'] = 2,  ['3'] = 3, ['4'] = 4,  ['5'] = 5,  ['6'] = 6,
-    ['7'] = 7, ['8'] = 8,  ['9'] = 9,
+    ['0'] = 0,  ['1'] = 1,  ['2'] = 2,  ['3'] = 3,  ['4'] = 4,  ['5'] = 5,
+    ['6'] = 6,  ['7'] = 7,  ['8'] = 8,  ['9'] = 9,
     ['A'] = 10, ['B'] = 11, ['C'] = 12, ['D'] = 13, ['E'] = 14, ['F'] = 15,
     ['a'] = 10, ['b'] = 11, ['c'] = 12, ['d'] = 13, ['e'] = 14, ['f'] = 15
 };
@@ -33,12 +36,6 @@ static inline const char *http_method_enum_to_str(enum HttpMethod method) {
 
     return HTTP_METHOD_STRINGS[method];
 }
-
-enum State {
-    PARSING_METHOD,
-    PARSING_TARGET,
-    PARSING_VERSION,
-};
 
 static enum HttpMethod
 get_method_from_bytes(
@@ -62,7 +59,7 @@ get_method_from_bytes(
  *
  * Returns: a pointer to the new struct HTTPRequest.
  */
-struct HttpRequest *http_request_init() {
+struct HttpRequest *http_request_init(void) {
     struct HttpRequest *req = malloc(sizeof(struct HttpRequest));
     if (req == NULL) return NULL;
 
@@ -83,7 +80,7 @@ struct HttpRequest *http_request_init() {
 static void http_request_target_free(struct HttpRequestTarget *t) {
     assert(t != NULL);
     if (t->segments != NULL) {
-        for (int i = 0; i < t->num_segments; i++) {
+        for (size_t i = 0; i < t->num_segments; i++) {
             free(t->segments[i]->bytes);
             free(t->segments[i]);
         }
@@ -109,8 +106,7 @@ void http_request_free(struct HttpRequest *req) {
 }
 
 
-struct HttpRequestTarget
-*parse_request_target(
+struct HttpRequestTarget *parse_request_target(
     uint8_t *target_data,
     size_t target_length
 ) {
@@ -166,7 +162,6 @@ struct HttpRequestTarget
 
     uint8_t buffer[MAX_LINE_SIZE];  /* store the segment being decoded */
     size_t buf_write_index = 0;     /* where the write index is */
-    size_t prev_delim_index = 0;    /* where in target_data the last delim was */
 
     /* already checked that target_data[0] == '/' */
 
@@ -221,7 +216,6 @@ struct HttpRequestTarget
 
             /* reset buffer for use with next segment to be built */
             buf_write_index = 0;
-            prev_delim_index = i;
 
             /* continue */
             i++;
@@ -230,9 +224,9 @@ struct HttpRequestTarget
 
         /* deal with percent encoding */
         if (target_data[i] == '%') {
-            if (i + 2 >= target_length) return NULL;
-            if (!is_hex_dig(target_data[i + 1])) return NULL;
-            if (!is_hex_dig(target_data[i + 2])) return NULL;
+            if (i + 2 >= target_length) goto cleanup_seg_list;
+            if (!is_hex_dig(target_data[i + 1])) goto cleanup_seg_list;
+            if (!is_hex_dig(target_data[i + 2])) goto cleanup_seg_list;
 
             uint8_t byte = hex_to_dec[target_data[i + 1]] * 16 
                                     + hex_to_dec[target_data[i + 2]];
@@ -277,9 +271,9 @@ struct HttpRequestTarget
             if (i >= target_length) break;
 
             if (target_data[i] == '%') {
-                if (i + 2 >= target_length) return NULL;
-                if (!is_hex_dig(target_data[i + 1])) return NULL;
-                if (!is_hex_dig(target_data[i + 2])) return NULL;
+                if (i + 2 >= target_length) goto cleanup_seg_list;
+                if (!is_hex_dig(target_data[i + 1])) goto cleanup_seg_list;
+                if (!is_hex_dig(target_data[i + 2])) goto cleanup_seg_list;
 
                 uint8_t byte = hex_to_dec[target_data[i + 1]] * 16 
                                         + hex_to_dec[target_data[i + 2]];
@@ -302,9 +296,14 @@ struct HttpRequestTarget
             }
         }
 
-        query_bytes = malloc(buf_write_index);
-        memcpy(query_bytes, buffer, buf_write_index);
+        if (buf_write_index == 0) {
+            query_bytes = NULL;
+        } else {
+            query_bytes = malloc(buf_write_index);
+            memcpy(query_bytes, buffer, buf_write_index);
+        }
         query_len = buf_write_index;
+
     } else {
         query_bytes = NULL;
         query_len = 0;
@@ -314,6 +313,7 @@ struct HttpRequestTarget
 
     if (target == NULL) {
         fprintf(stderr, "error while allocating nz target struct\n");
+        free(query_bytes);
         goto cleanup_seg_list;
     }
 
@@ -329,7 +329,7 @@ struct HttpRequestTarget
 
 cleanup_seg_list:
 
-    for (int j = 0; j < segment_count; j++) {
+    for (size_t j = 0; j < segment_count; j++) {
         free(segments[j]->bytes);
         free(segments[j]);
     }
@@ -338,17 +338,18 @@ cleanup_seg_list:
     return NULL;
 }
 
-enum SevaStatus parse_header(
+// TODO: apply filter to turn repeated headers into lists
+seva_status_t parse_header(
     struct HttpRequest *req,
-    uint8_t *data,
+    const uint8_t *data,
     size_t length
 ) {
     enum State { PARSING_FNAME, PARSING_WS, PARSING_FVAL };
     enum State state = PARSING_FNAME;
 
-    size_t fname_end;   /* inclusive */
-    size_t fval_start;  /* inclusive */
-    size_t fval_end;    /* inclusive */
+    size_t fname_end;
+    ssize_t fval_start;  /* inclusive */
+    ssize_t fval_end;    /* inclusive */
 
     for (fval_end = length - 1; fval_end >= 0 && is_ows(data[fval_end]); fval_end--);
 
@@ -365,17 +366,17 @@ enum SevaStatus parse_header(
 
         switch (state) {
             case PARSING_FNAME: {
-                if (eof) return PARSE_BAD;
+                if (eof) return SEVA_PARSE_BAD;
 
                 if (byte == ':') {
-                    if (i == 0) return PARSE_BAD;
+                    if (i == 0) return SEVA_PARSE_BAD;
 
                     fname_end = i - 1;
                     state = PARSING_WS;
                     break;
                 }
 
-                if (!is_tchar(byte)) return PARSE_BAD;
+                if (!is_tchar(byte)) return SEVA_PARSE_BAD;
 
                 break;
             }
@@ -399,13 +400,13 @@ enum SevaStatus parse_header(
                 if (eof) break;
 
                 int is_valid = is_vchar(byte) || is_obs_text(byte) || is_ows(byte);
-                if (!is_valid) return PARSE_BAD;
+                if (!is_valid) return SEVA_PARSE_BAD;
 
                 break;
             }
 
             default: {
-                return PARSE_BAD;
+                return SEVA_PARSE_BAD;
             }
         }
 
@@ -416,19 +417,25 @@ enum SevaStatus parse_header(
 
     const size_t name_len = fname_end + 1;
     char *name_str = malloc(name_len + 1);
-    if (name_str == NULL) return PARSE_BAD;
+    if (name_str == NULL) return SEVA_PARSE_BAD;
     memcpy(name_str, data, name_len);
     name_str[name_len] = '\0';
 
     char *val_str;
     if (fval_start == -1) {
         val_str = malloc(1);
-        if (val_str == NULL) return PARSE_BAD;
+        if (val_str == NULL) {
+            free(name_str);
+            return SEVA_PARSE_BAD;
+        }
         val_str[0] = '\0';
     } else {
         const size_t val_len = (fval_end - fval_start + 1);
         val_str = malloc(val_len + 1);
-        if (val_str == NULL) return PARSE_BAD;
+        if (val_str == NULL) {
+            free(name_str);
+            return SEVA_PARSE_BAD;
+        }
         memcpy(val_str, &data[fval_start], val_len);
         val_str[val_len] = '\0';
     }
@@ -436,25 +443,246 @@ enum SevaStatus parse_header(
     if (htable_insert(req->headers, name_str, val_str) < 0) {
         free(name_str);
         free(val_str);
-        return PARSE_BAD;
+        return SEVA_PARSE_BAD;
     }
 
     free(name_str);
     free(val_str);
 
-    return PARSE_OK;
+    return SEVA_OK;
 }
 
-enum SevaStatus
-parse_request_line(
+// Tokenize comma separated list
+struct ByteSliceVector *
+tokenize_cslist(uint8_t *data, size_t length)
+{
+    enum State {
+        PARSING_ITEM
+    };
+
+    enum State state = PARSING_ITEM;
+    bool eof = false;
+    ssize_t last_comma = -1;
+    uint8_t *item_bytes = nullptr;
+    struct ByteSlice *item_slice = nullptr;
+    struct ByteSliceVector *items_vec = bslice_vec_init(INIT_CSTOKENS_ARR_SIZE);
+
+    if (items_vec == NULL) {
+        return NULL;
+    }
+
+    ssize_t i = 0;
+    uint8_t byte;
+
+    for (;;) {
+        if (eof) { break; }
+
+        if (i == (ssize_t) length) {
+            eof = true;
+        } else {
+            byte = data[i];
+        }
+
+        switch (state) {
+            case PARSING_ITEM: {
+                if (byte == ',' || eof) {
+                    ssize_t p, q;
+                    for (p = last_comma + 1; is_ows(data[p]) && p < i; p++);
+                    for (q = i - 1; is_ows(data[q]) && q > last_comma; q--);
+
+                    if (p == i) {
+                        /* element is empty, ignore */
+                        last_comma = i;
+                        i++;
+                        continue;
+                    }
+
+                    const size_t trimmed_len = q - p + 1;
+
+                    item_bytes = memdup(&data[p], trimmed_len);
+
+                    if (item_bytes == NULL) {
+                        goto cleanup_2;
+                    }
+
+                    item_slice = malloc(sizeof(struct ByteSlice));
+
+                    if (item_slice == NULL) {
+                        goto cleanup_3;
+                    }
+
+                    *item_slice = (struct ByteSlice) {
+                        .data = item_bytes,
+                        .length = trimmed_len
+                    };
+
+                    if (bslice_vec_push(items_vec, item_slice) == -1) {
+                        goto cleanup_3;
+                    }
+
+                    last_comma = i;
+                    i++;
+                    continue;
+                }
+
+                i++;
+                continue;
+            }
+        }
+    }
+
+    return items_vec;
+
+cleanup_3:
+    free(item_slice);
+
+cleanup_2:
+    free(item_bytes);
+
+// cleanup_1:
+    bslice_vec_free(items_vec);
+    return nullptr;
+
+}
+
+struct ReqBodyInfo {
+    bool is_chunked;
+    size_t content_length;
+};
+
+seva_status_t get_req_body_info(
+    const struct HttpRequest *req,
+    struct ReqBodyInfo *rbinfo
+) {
+    if (req->method == HTTP_HEAD) {
+        *rbinfo = (struct ReqBodyInfo) {
+            .is_chunked = false, .content_length = 0
+        };
+        return SEVA_OK;
+    }
+
+    struct Header *te_query = htable_query(req->headers, "Transfer-Encoding");
+    struct Header *cl_query = htable_query(req->headers, "Content-Length");
+
+    struct ByteSliceVector *v;
+    struct ByteSlice *last;
+
+    if (te_query != NULL && cl_query != NULL) {
+        return SEVA_PARSE_BAD_REQUEST; 
+    }
+
+    if (te_query != NULL) {
+        /* check for only one field */ 
+        if (te_query->next != NULL) {
+            goto cleanup_1;
+        }
+
+        v = tokenize_cslist((uint8_t *) te_query->value, strlen(te_query->value));
+
+        if (v == NULL) {
+            goto cleanup_1;
+        }
+
+        if (v->count == 0) {
+            goto cleanup_2;
+        }
+
+        last = v->array[v->count - 1];
+        char *ch_str = "chunked";
+
+        if (
+            last->length != strlen(ch_str) ||
+            memcmp(last->data, ch_str, last->length) != 0
+        ) {
+            goto cleanup_2;
+        }
+
+        *rbinfo = (struct ReqBodyInfo) { .is_chunked = true, .content_length = 0 };
+
+        htable_query_free(te_query);
+        bslice_vec_free(v);
+
+        return SEVA_OK;
+    }
+
+    if (cl_query != NULL) {
+        if (cl_query->next != NULL) {
+            const char *first_val = cl_query->value;
+            struct Header *current = cl_query->next;
+
+            while (current != NULL) {
+                if (strcmp(first_val, current->value) != 0) {
+                    goto cleanup_1;
+                }
+                current = current->next;
+            }
+        }
+
+        int32_t content_length;
+
+        const int res = parse_bytes_to_i32(
+            (uint8_t *) cl_query->value,
+            strlen(cl_query->value),
+            &content_length
+        );
+
+        if (res == -1) {
+            goto cleanup_1;
+        }
+
+        if (content_length < 0 || content_length > CONTENT_LENGTH_MAX) {
+            goto cleanup_1;
+        }
+
+        *rbinfo = (struct ReqBodyInfo) {
+            .is_chunked = false,
+            .content_length = content_length
+        };
+
+        htable_query_free(cl_query);
+
+        return SEVA_OK;
+    }
+
+    return SEVA_PARSE_BAD_REQUEST;
+
+    // TODO: differentiate bad request vs irrecoverable
+
+    // check if transfer-encoding AND content-length present. return 400 if both
+    // check if transfer-encoding is present
+    // get the field value from htable, tokenize into list, and get last
+    // if chunked is last, set is_chunked true and content_length unspec.
+    // if chunked not last, return 400
+    // if no transfer encoding but content-length (multiple headers diff val) or single with diffval 
+       // IRRECOVERABLE ERROR, so 400 and CLOSE connection
+    // else default is_chunked = false and content_length = 0;
+
+// cleanup_3:
+
+cleanup_2:
+    bslice_vec_free(v);
+
+cleanup_1:
+    htable_query_free(te_query);
+    htable_query_free(cl_query);
+
+    return SEVA_PARSE_BAD_REQUEST;
+}
+
+seva_status_t parse_request_line(
     struct HttpRequest *req,
     uint8_t *data,
     size_t length
 ) {
+    enum State {
+        PARSING_METHOD,
+        PARSING_TARGET,
+        PARSING_VERSION,
+    };
+
     enum State state = PARSING_METHOD;
     size_t i = 0;
     size_t target_start = 0;
-    size_t version_start = 0;
 
     while (true) {
         if (i >= length)
@@ -464,12 +692,12 @@ parse_request_line(
             case PARSING_METHOD: {
                 if (data[i] == ' ') {
                     if (i == 0)
-                        return PARSE_BAD_METHOD;
+                        return SEVA_PARSE_BAD_METHOD;
 
                     enum HttpMethod method = get_method_from_bytes(data, i);
 
                     if (method == HTTP_METHOD_UNKNOWN)
-                        return PARSE_BAD_METHOD;
+                        return SEVA_PARSE_BAD_METHOD;
 
                     req->method = method;
                     state = PARSING_TARGET;
@@ -478,7 +706,7 @@ parse_request_line(
                 }
 
                 if (!is_tchar(data[i]))
-                    return PARSE_BAD_METHOD;
+                    return SEVA_PARSE_BAD_METHOD;
 
                 break;
             }
@@ -497,17 +725,16 @@ parse_request_line(
                 }
 
                 /* no space found, target doesn't end */
-                if (sp_index == -1) return PARSE_BAD_TARGET;
+                if (sp_index == -1) return SEVA_PARSE_BAD_TARGET;
 
                 struct HttpRequestTarget *target = parse_request_target(
                     &data[i], sp_index - i
                 );
 
-                if (target == NULL) return PARSE_BAD_TARGET;
+                if (target == NULL) return SEVA_PARSE_BAD_TARGET;
 
                 req->target = target;
 
-                version_start = sp_index + 1;
                 i = sp_index;
                 state = PARSING_VERSION;
 
@@ -520,23 +747,25 @@ parse_request_line(
 
                 char *rest = strndup((char *) &data[i], length - i);
 
-                if (sscanf(rest, "HTTP/%d.%d", &major, &minor) != 2)
-                    return PARSE_BAD_VERSION;
+                if (sscanf(rest, "HTTP/%d.%d", &major, &minor) != 2) {
+                    free(rest);
+                    return SEVA_PARSE_BAD_VERSION;
+                }
 
                 free(rest);
 
                 req->version.major = major;
                 req->version.minor = minor;
 
-                return PARSE_OK;
+                return SEVA_OK;
             }
 
             default: {
-                return PARSE_BAD;
+                return SEVA_PARSE_BAD;
             }
         }
         i++;
     }
-    return PARSE_BAD;
+    return SEVA_PARSE_BAD;
 }
 

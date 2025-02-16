@@ -12,7 +12,7 @@ unsigned long murmur_hash_wrapper(const unsigned char *str);
 
 void strtolower(char *str) {
     for (char *p = str; *p != '\0'; p++) {
-        *p = tolower(*p);
+        *p = (char) tolower(*p);
     }
 }
 
@@ -166,8 +166,10 @@ struct Header *htable_query(struct HeaderTable *ht, char *name) {
         if (strcasecmp(name, current->name) == 0) {
             struct Header *copy = malloc(sizeof(struct Header));
 
-            if (copy == NULL)
+            if (copy == NULL) {
+                htable_query_free(results_head);
                 return NULL;
+            }
 
             char *namecpy = strdup(current->name);
             char *valcpy = strdup(current->value);

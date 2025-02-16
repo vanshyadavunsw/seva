@@ -17,7 +17,9 @@ void rb_destroy(struct RingBuffer *rb);
 
 bool rb_write(struct RingBuffer *rb, const uint8_t *src, size_t size);
 
-bool rb_read(struct RingBuffer *rb, uint8_t *dst, size_t size);bool rb_read(struct RingBuffer *rb, uint8_t *dst, size_t size);
+bool rb_read(struct RingBuffer *rb, uint8_t *dst, size_t size);
+
+bool rb_read(struct RingBuffer *rb, uint8_t *dst, size_t size);
 
 static inline size_t rb_count(struct RingBuffer *rb) {
     return rb->write_index - rb->read_index;

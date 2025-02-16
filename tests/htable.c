@@ -6,18 +6,15 @@
 
 #define TEST_MODULE_NAME "htable"
 
-static int count_query_result_count(struct Header *query);
-static bool name_exists_in_query_cs(struct Header *query, char *name);
-static bool name_val_in_query_cs(struct Header *query, char *name, char *val);
 static bool key_val_exists_in_ht(struct HeaderTable *ht, char *key, char *val);
 
-void test_successful_init();
-void test_add_item_and_single_query();
-void test_multiple_add_and_resize();
-void test_unique_id_invariant();
-void test_delete();
+void test_successful_init(void);
+void test_add_item_and_single_query(void);
+void test_multiple_add_and_resize(void);
+void test_unique_id_invariant(void);
+void test_delete(void);
 
-void log_test_start() {
+void log_test_start(void) {
     printf("Testing module %s\n", TEST_MODULE_NAME);
 }
 
@@ -25,7 +22,7 @@ void log_success(char *name) {
     printf("[PASS] test \"%s\" succeeded.\n", name);
 }
 
-int main() {
+int main(void) {
     log_test_start();
 
     test_successful_init();
@@ -39,7 +36,7 @@ int main() {
     return 0;
 }
 
-void test_successful_init() {
+void test_successful_init(void) {
     struct HeaderTable *ht = htable_init(5);
     assert(ht != NULL);
     assert(ht->size == 5);
@@ -48,7 +45,7 @@ void test_successful_init() {
     log_success("htable successful init");
 }
 
-void test_add_item_and_single_query() {
+void test_add_item_and_single_query(void) {
     struct HeaderTable *ht = htable_init(5);
     assert(htable_insert(ht, "Content-Length", "ABC") >= 0);
     assert(ht->nheaders == 1);
@@ -67,7 +64,7 @@ void test_add_item_and_single_query() {
     log_success("htable successful add and query single");
 }
 
-void test_multiple_add_and_resize() {
+void test_multiple_add_and_resize(void) {
     struct HeaderTable *ht = htable_init(5);
 
     assert(htable_insert(ht, "abc", "def") >= 0);
@@ -115,7 +112,7 @@ void test_multiple_add_and_resize() {
     log_success("test multiple adds and resizes");
 }
 
-void test_unique_id_invariant() {
+void test_unique_id_invariant(void) {
     struct HeaderTable *ht = htable_init(5);
 
     assert(htable_insert(ht, "a", "b") >= 0);
@@ -138,7 +135,7 @@ void test_unique_id_invariant() {
     log_success("ids maintained between resizes");
 }
 
-void test_delete() {
+void test_delete(void) {
     struct HeaderTable *ht = htable_init(5);
 
     assert(htable_insert(ht, "Content-Length", "32") >= 0);
@@ -186,29 +183,4 @@ static bool key_val_exists_in_ht(struct HeaderTable *ht, char *key, char *val) {
     }
     htable_query_free(query);
     return found;
-}
-
-static int count_query_result_count(struct Header *query) {
-    int i = 0;
-    while (query != NULL) {
-        i++;
-        query = query->next;
-    }
-    return i;
-}
-
-static bool name_exists_in_query_cs(struct Header *query, char *name) {
-    while (query != NULL) {
-        if (strcmp(query->name, name) == 0) return true;
-        query = query->next;
-    }
-    return false;
-}
-
-static bool name_val_in_query_cs(struct Header *query, char *name, char *val) {
-    while (query != NULL) {
-        if (strcmp(query->name, name) == 0 && strcmp(query->value, val) == 0) return true;
-        query = query->next;
-    }
-    return false;
 }
