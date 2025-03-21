@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -9,12 +10,8 @@
 #include "htable.h"
 #include "utils.h"
 
-#define INIT_SEGMENT_ARR_SIZE 20
-#define INIT_HTABLE_BUCKETS 20
-#define INIT_CSTOKENS_ARR_SIZE 5
-#define CONTENT_LENGTH_MAX 16384
-
-static const int hex_to_dec[256] = {
+// TODO: use the utils version
+static const unsigned int hex_to_dec[256] = {
     ['0'] = 0,  ['1'] = 1,  ['2'] = 2,  ['3'] = 3,  ['4'] = 4,  ['5'] = 5,
     ['6'] = 6,  ['7'] = 7,  ['8'] = 8,  ['9'] = 9,
     ['A'] = 10, ['B'] = 11, ['C'] = 12, ['D'] = 13, ['E'] = 14, ['F'] = 15,
@@ -73,6 +70,7 @@ struct HttpRequest *http_request_init(void) {
 
     req->headers = headers;
     req->target = NULL;
+    req->body = NULL;
 
     return req;
 }
@@ -339,10 +337,12 @@ cleanup_seg_list:
 }
 
 // TODO: apply filter to turn repeated headers into lists
-seva_status_t parse_header(
+seva_status_t parse_header_ex(
     struct HttpRequest *req,
-    const uint8_t *data,
-    size_t length
+    uint8_t *data,
+    size_t length,
+    header_validator_fn validator,
+    void *validator_ctx
 ) {
     enum State { PARSING_FNAME, PARSING_WS, PARSING_FVAL };
     enum State state = PARSING_FNAME;
@@ -372,6 +372,12 @@ seva_status_t parse_header(
                     if (i == 0) return SEVA_PARSE_BAD;
 
                     fname_end = i - 1;
+
+                    /* ignore if field name is not allowed */
+                    if (!validator(data, fname_end + 1, validator_ctx)) {
+                        return SEVA_HEADER_IGNORED;
+                    }
+
                     state = PARSING_WS;
                     break;
                 }
@@ -453,7 +459,8 @@ seva_status_t parse_header(
 }
 
 // Tokenize comma separated list
-struct ByteSliceVector *
+// TODO: needs unit testing
+[[nodiscard]] struct ByteSliceVector *
 tokenize_cslist(uint8_t *data, size_t length)
 {
     enum State {
@@ -487,8 +494,8 @@ tokenize_cslist(uint8_t *data, size_t length)
             case PARSING_ITEM: {
                 if (byte == ',' || eof) {
                     ssize_t p, q;
-                    for (p = last_comma + 1; is_ows(data[p]) && p < i; p++);
-                    for (q = i - 1; is_ows(data[q]) && q > last_comma; q--);
+                    for (p = last_comma + 1; p < i && is_ows(data[p]); p++);
+                    for (q = i - 1; q > last_comma && is_ows(data[q]); q--);
 
                     if (p == i) {
                         /* element is empty, ignore */
@@ -538,18 +545,13 @@ cleanup_3:
 
 cleanup_2:
     free(item_bytes);
-
 // cleanup_1:
     bslice_vec_free(items_vec);
     return nullptr;
 
 }
 
-struct ReqBodyInfo {
-    bool is_chunked;
-    size_t content_length;
-};
-
+// TODO: needs unit testing
 seva_status_t get_req_body_info(
     const struct HttpRequest *req,
     struct ReqBodyInfo *rbinfo
@@ -561,6 +563,8 @@ seva_status_t get_req_body_info(
         return SEVA_OK;
     }
 
+    seva_status_t status = SEVA_PARSE_BAD_REQ;
+
     struct Header *te_query = htable_query(req->headers, "Transfer-Encoding");
     struct Header *cl_query = htable_query(req->headers, "Content-Length");
 
@@ -568,7 +572,7 @@ seva_status_t get_req_body_info(
     struct ByteSlice *last;
 
     if (te_query != NULL && cl_query != NULL) {
-        return SEVA_PARSE_BAD_REQUEST; 
+        return SEVA_PARSE_BAD_REQ; 
     }
 
     if (te_query != NULL) {
@@ -594,6 +598,8 @@ seva_status_t get_req_body_info(
             last->length != strlen(ch_str) ||
             memcmp(last->data, ch_str, last->length) != 0
         ) {
+            /* IRRECOVERABLE. connection must be closed. */
+            status = SEVA_PARSE_FATAL;
             goto cleanup_2;
         }
 
@@ -606,31 +612,26 @@ seva_status_t get_req_body_info(
     }
 
     if (cl_query != NULL) {
-        if (cl_query->next != NULL) {
-            const char *first_val = cl_query->value;
-            struct Header *current = cl_query->next;
-
-            while (current != NULL) {
-                if (strcmp(first_val, current->value) != 0) {
-                    goto cleanup_1;
-                }
-                current = current->next;
-            }
-        }
-
+        /* there is a Content-Length header */
         int32_t content_length;
 
-        const int res = parse_bytes_to_i32(
+        /* parse the field value to an integer */
+        const int res = mem_dec_to_i32(
             (uint8_t *) cl_query->value,
             strlen(cl_query->value),
             &content_length
         );
 
+        /* malformed Content-Length field value */
         if (res == -1) {
+            status = SEVA_PARSE_FATAL;
             goto cleanup_1;
         }
 
+        /* TODO: maybe consider 413 Payload Too Large */
+        /* Content-Length cannot be negative or too large */
         if (content_length < 0 || content_length > CONTENT_LENGTH_MAX) {
+            status = SEVA_PARSE_FATAL;
             goto cleanup_1;
         }
 
@@ -639,23 +640,30 @@ seva_status_t get_req_body_info(
             .content_length = content_length
         };
 
+        /* if there are multiple Content-Length headers, check that they're
+         * all identical */
+        if (cl_query->next != NULL) {
+            const char *first_val = cl_query->value;
+            struct Header *current = cl_query->next;
+
+            while (current != NULL) {
+                if (strcmp(first_val, current->value) != 0) {
+                    status = SEVA_PARSE_FATAL;
+                    goto cleanup_1;
+                }
+                current = current->next;
+            }
+        }
+
         htable_query_free(cl_query);
 
         return SEVA_OK;
     }
 
-    return SEVA_PARSE_BAD_REQUEST;
 
-    // TODO: differentiate bad request vs irrecoverable
+    *rbinfo = (struct ReqBodyInfo) { .is_chunked = false, .content_length = 0 };
 
-    // check if transfer-encoding AND content-length present. return 400 if both
-    // check if transfer-encoding is present
-    // get the field value from htable, tokenize into list, and get last
-    // if chunked is last, set is_chunked true and content_length unspec.
-    // if chunked not last, return 400
-    // if no transfer encoding but content-length (multiple headers diff val) or single with diffval 
-       // IRRECOVERABLE ERROR, so 400 and CLOSE connection
-    // else default is_chunked = false and content_length = 0;
+    return SEVA_OK;
 
 // cleanup_3:
 
@@ -666,7 +674,7 @@ cleanup_1:
     htable_query_free(te_query);
     htable_query_free(cl_query);
 
-    return SEVA_PARSE_BAD_REQUEST;
+    return status;
 }
 
 seva_status_t parse_request_line(
@@ -769,3 +777,306 @@ seva_status_t parse_request_line(
     return SEVA_PARSE_BAD;
 }
 
+seva_status_t
+sanitize_req_headers(struct HttpRequest *req)
+{
+    (void) req;
+    return SEVA_ERROR_GENERIC;
+
+    /**
+     * Function to run important checks on the headers
+     * e.g. coalesce those headers which are repeated into comma separated lists if applicable
+     * other stuff
+     *
+     */
+}
+
+/** 
+ * this function does NOT check whether the body is valid according to HTTP semantics. 
+ * the caller (me) MUST determine if it is valid to read a fixed, `length` number of bytes from
+ * the buffer `data` through a call to `get_req_body_info` or equivalent.
+ */
+seva_status_t
+parse_body_fixed(struct HttpRequest *req, uint8_t *data, size_t length)
+{
+    uint8_t *datacpy = memdup(data, length);
+
+    if (datacpy == NULL) {
+        return SEVA_NOMEM;
+    }
+
+    req->body->length = length;
+    req->body->data = datacpy;
+
+    return SEVA_OK;
+}
+
+static int
+remove_invalid_trailers(struct ByteSliceVector *trailers)
+{
+    // TODO: keep adding new invalid trailers as i get through the RFCs
+    static const char *invalid_trailers[] = {
+        "Content-Length",
+        "Transfer-Encoding",
+        "Host",
+        "Content-Encoding",
+        "Content-Type",
+        "Content-Range",
+        "Trailer",
+    };
+
+    size_t num_invalids = sizeof(invalid_trailers) / sizeof(char *);
+
+    int count = 0;
+    for (size_t i = 0; i < num_invalids; i++) {
+        count += bslice_vec_remove_all(
+            trailers,
+            (uint8_t *) invalid_trailers[i], strlen(invalid_trailers[i])
+        );
+    }
+
+    return count;
+}
+
+
+struct ChunkedParserState *
+chunked_parser_state_init()
+{
+    struct ChunkedParserState *state = malloc(sizeof(*state));
+
+    if (state == NULL) {
+        return NULL;
+    }
+
+    *state = (struct ChunkedParserState) {
+        .state = CHP_INIT,
+        .last_state = CHP_PARSING_CHUNK_SIZE,
+    };
+
+    return state;
+}
+
+void
+chunked_parser_state_free(struct ChunkedParserState *state)
+{
+    (void) state;
+    return;
+}
+
+static bool
+is_allowed_trailer(uint8_t *field_name, size_t length, void *ctx)
+{
+    return bslice_vec_contains(ctx, field_name, length);
+}
+
+static inline int
+remove_chunked_str(struct HeaderTable *ht)
+{
+    struct Header *hdr = htable_query_first(ht, "Transfer-Encoding");
+
+    if (hdr == NULL) {
+        return -1;
+    }
+
+    struct ByteSliceVector *v = tokenize_cslist(hdr->value, strlen(hdr->value));
+
+    memncasecmp(const void *buf1, size_t n1, const void *buf2, size_t n2)
+    if (
+    
+    if (v->count == 1 && 
+        memncmp(v->array[0]->data, v->array[0]->length, "chunked", 7)) {
+        
+    }
+
+}
+
+/**
+ * ChunkedParserState's lifetime is managed by the caller.
+ */
+seva_status_t
+parse_body_chunked(
+    struct HttpRequest *req,
+    struct ChunkedParserState *ps,
+    uint8_t *data, 
+    size_t length,
+    size_t *bytes_read
+) {
+    size_t i = 0;
+    bool eof = false;
+    uint8_t byte;
+    size_t crlf;
+
+
+    struct Header *trailer_query;
+    struct ByteSliceVector *trailers;
+
+    for (;;) {
+        if (eof) { break; }
+
+        if (i >= length){
+            eof = true;
+        } else {
+            byte = data[i];
+        }
+
+        switch (ps->state) {
+            case CHP_INIT: {
+                trailer_query = htable_query(req->headers, "Trailer");
+                if (trailer_query != NULL) { // no trailer, dont accept
+                    trailers = tokenize_cslist(
+                        (uint8_t *) trailer_query->value,
+                        strlen(trailer_query->value)
+                    );
+
+                    // TODO: deal with empty trailer
+                    remove_invalid_trailers(trailers);
+                    ps->allowed_trailers = trailers;
+
+                    free(trailer_query);
+                    trailer_query = NULL;
+
+                    ps->state = CHP_PARSING_CHUNK_SIZE;
+
+                    break;
+                }
+            }
+
+            case CHP_PARSING_CHUNK_SIZE: {
+                ssize_t res;
+
+                if (eof || (res = find_crlf(data, length)) == -1) {
+                    *bytes_read = i;
+                    return SEVA_AGAIN;
+                }
+
+                crlf = res;
+
+                const uint8_t *ext = memchr(&data[i], ';', crlf - i);
+                size_t hex_seq_length;
+
+                if (ext != NULL) {
+                    hex_seq_length = ext - &data[i];
+                } else {
+                    hex_seq_length = crlf - i;
+                } int err = mem_hex_to_u32(
+                    &data[i],
+                    hex_seq_length,
+                    &ps->curr_chunk_size
+                );
+
+                if (err == -1) {
+                    return SEVA_PARSE_FATAL;
+                }
+
+                if (ext != NULL) {
+                    /* handle chunk-extensions here one day */
+                }
+
+                i = crlf + 2;
+
+                if (ps->curr_chunk_size == 0) {
+                    ps->state = CHP_PARSING_TRAILERS;
+                } else {
+                    ps->state = CHP_PARSING_CHUNK_DATA;
+                }
+
+                continue;
+            }
+
+            case CHP_PARSING_CHUNK_DATA: {
+                if (eof || i + ps->curr_chunk_size + 1 >= length) {
+                    *bytes_read = i;
+                    return SEVA_AGAIN;
+                }
+
+                if (find_crlf(&data[i + ps->curr_chunk_size], 2) == -1) {
+                    return SEVA_PARSE_FATAL;
+                }
+
+                ps->count += ps->curr_chunk_size;
+
+                if (ps->count > (size_t) MESSAGE_BODY_MAX) {
+                    return SEVA_BODY_TOO_LARGE;
+                }
+
+                memcpy(&ps->buf[ps->count], &data[i], ps->curr_chunk_size);
+
+                i += ps->curr_chunk_size + 2;
+                ps->state = CHP_PARSING_CHUNK_SIZE;
+
+                continue;
+            }
+
+            case CHP_PARSING_TRAILERS: {
+                if (eof) {
+                    *bytes_read = i;
+                    return SEVA_AGAIN;
+                }
+
+                ssize_t res = find_crlf(&data[i], length - i);
+
+                if (res == -1) {
+                    *bytes_read = i;
+                    return SEVA_AGAIN;
+                }
+
+                /* no trailers. we're done */
+                if (res == 0) {
+                    *bytes_read = i;
+                    return SEVA_OK;
+
+                    // TODO: write a function to modify an htable entry
+                    // removed chunked by setting '\0' som
+                    // and delete trailer. maybe put this in a different state.
+                    /**
+                     * Content-Length := length
+                     * Remove "chunked" from Transfer-Encoding
+                     * Remove Trailer from existing header fields.
+                     *
+                     */
+                }
+
+                /* if we're here, that means there's some header field to process
+                 * from here to the CRLF */
+
+                const seva_status_t tr_res = parse_header_ex(
+                    req,
+                    &data[i],
+                    res - i,
+                    is_allowed_trailer,
+                    ps->allowed_trailers
+                );
+
+                if (tr_res < 0 && tr_res != SEVA_HEADER_IGNORED) {
+                    return SEVA_PARSE_FATAL;
+                }
+
+                i = res + 2;
+                ps->state = CHP_PARSING_TRAILERS;
+                continue;
+            }
+        }
+    }
+
+    return SEVA_OK;
+}
+/**
+*  NOTE:: figure out what to do with no trailer
+*  figure out how to make parse_header_ex accept allowed headers
+*/
+
+/**
+*  NOTE: some pointers about this function
+*  each state handler can verify that it has enough data to do what it needs to do
+*  it will verify before changing any state. so it can easily be re-entered.
+*  if don't have enough data, return bytes read (0 or whatever). state enum stays unchanged
+*  in state struct, so when it's called again it enters right there.
+*  get rid of CHP_READING, and handle extensions within parsing chunk size. for most state
+*  cases, the check at the front will just be if we have a CRLF (we have complete data),
+*  but for reading the actual chunked data, we want to buffer the entire chunk's data. for
+*  that the check will be to see if we have chunk-size to read all together + the two CRLF. can easily check if malformed by checking if CRLF is missing.
+*/
+
+/**
+*  TODO: Document every error a function can return like man pages do.
+*/

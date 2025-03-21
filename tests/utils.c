@@ -50,7 +50,7 @@ void test_parse_int_normal() {
 
     int32_t num;
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        int res = parse_bytes_to_i32(
+        int res = mem_dec_to_i32(
             (uint8_t *) cases[i].bytes,
             strlen(cases[i].bytes), &num
         );
@@ -75,7 +75,7 @@ void test_parse_int_negative() {
 
     int32_t num;
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        int res = parse_bytes_to_i32(
+        int res = mem_dec_to_i32(
             (uint8_t *) cases[i].bytes,
             strlen(cases[i].bytes), &num
         );
@@ -101,7 +101,7 @@ void test_parse_int_invalid() {
 
     int32_t num;
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        int res = parse_bytes_to_i32(
+        int res = mem_dec_to_i32(
             (uint8_t *) cases[i],
             strlen(cases[i]), &num
         );
@@ -122,7 +122,7 @@ void test_close_to_max_min() {
 
     int32_t num;
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        int res = parse_bytes_to_i32(
+        int res = mem_dec_to_i32(
             (uint8_t *) cases[i].bytes,
             strlen(cases[i].bytes), &num
         );
@@ -145,7 +145,7 @@ void test_parse_int_overflow() {
 
     int32_t num;
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        int res = parse_bytes_to_i32(
+        int res = mem_dec_to_i32(
             (uint8_t *) cases[i],
             strlen(cases[i]), &num
         );

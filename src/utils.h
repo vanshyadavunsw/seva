@@ -3,15 +3,25 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 void *
 memdup(const void *src, size_t n);
 
 int
-parse_bytes_to_i32(uint8_t *buf, size_t n, int32_t *dst);
+mem_dec_to_i32(uint8_t *buf, size_t n, int32_t *dst);
+
+int
+mem_hex_to_u32(uint8_t *buf, size_t n, uint32_t *dst);
 
 int
 memncmp(const void *buf1, size_t n1, const void *buf2, size_t n2);
+
+int
+memncasecmp(const void *buf1, size_t n1, const void *buf2, size_t n2);
+
+ssize_t
+find_crlf(uint8_t *data, size_t length);
 
 /* PtrList (old */
 
@@ -59,5 +69,25 @@ bslice_vec_free(struct ByteSliceVector *list);
 
 int
 bslice_vec_push(struct ByteSliceVector *list, struct ByteSlice *item);
+
+static inline struct ByteSlice
+bslice(uint8_t *data, size_t length)
+{
+    return (struct ByteSlice) { .data = data, .length = length };
+}
+
+int
+bslice_vec_remove_all(
+    struct ByteSliceVector *list,
+    uint8_t *data,
+    size_t length
+);
+
+int
+bslice_vec_contains(
+    struct ByteSliceVector *list,
+    uint8_t *data, 
+    size_t length
+);
 
 #endif

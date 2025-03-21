@@ -1,3 +1,4 @@
+#include <_strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -193,6 +194,20 @@ struct Header *htable_query(struct HeaderTable *ht, char *name) {
     }
 
     return results_head;
+}
+
+struct Header *htable_query_first(struct HeaderTable *ht, char *name) {
+    size_t bucket_index = hashfunc((unsigned char *) name) % ht->size;
+
+    struct Header *current = ht->hlist[bucket_index];
+
+    while (current != NULL) {
+        if (strcasecmp(name, current->name) == 0) {
+            return current;
+        }
+    }
+
+    return NULL;
 }
 
 int htable_delete(struct HeaderTable *ht, char *name, uint8_t id) {

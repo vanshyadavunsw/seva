@@ -2,6 +2,8 @@
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
+#include "../src/utils.h"
+#include <stdlib.h>
 
 #define TEST_MODULE_NAME "http"
 
@@ -33,6 +35,20 @@ void test_header_case_nonsensitive(void);
 void test_header_duplicate_key_diff_val(void);
 void test_header_dup_key_dup_val(void);
 
+void test_tokenize_cslist_basic(void);
+void test_tokenize_cslist_whitespace(void);
+void test_tokenize_cslist_empty_elements(void);
+void test_tokenize_cslist_http_headers(void);
+void test_tokenize_cslist_special_chars(void);
+void test_tokenize_cslist_edge_cases(void);
+
+void test_get_req_body_info_basic(void);
+void test_get_req_body_info_transfer_encoding(void);
+void test_get_req_body_info_content_length(void);
+void test_get_req_body_info_header_conflicts(void);
+void test_get_req_body_info_methods(void);
+void test_get_req_body_info_whitespace(void);
+
 int main(void) {
     log_test_start();
 
@@ -56,6 +72,20 @@ int main(void) {
     test_header_case_nonsensitive();
     test_header_duplicate_key_diff_val();
     test_header_dup_key_dup_val();
+
+    test_tokenize_cslist_basic();
+    test_tokenize_cslist_whitespace();
+    test_tokenize_cslist_empty_elements();
+    test_tokenize_cslist_http_headers();
+    test_tokenize_cslist_special_chars();
+    test_tokenize_cslist_edge_cases();
+
+    test_get_req_body_info_basic();
+    test_get_req_body_info_transfer_encoding();
+    test_get_req_body_info_content_length();
+    test_get_req_body_info_header_conflicts();
+    test_get_req_body_info_methods();
+    test_get_req_body_info_whitespace();
 
     printf("ALL OK\n");
 
@@ -621,5 +651,489 @@ void test_header_dup_key_dup_val(void) {
     htable_query_free(query);
     http_request_free(r);
     log_success("header duplicate key and duplicate val");
+}
+
+/* tokenize cslist */
+void test_tokenize_cslist_basic(void) {
+    // Simple case, no whitespace
+    const char *input1 = "a,b,c";
+    struct ByteSliceVector *v = tokenize_cslist((uint8_t *) input1, strlen(input1));
+    assert(v != NULL);
+    assert(v->count == 3);
+    assert(v->array[0]->length == 1);
+    assert(memcmp(v->array[0]->data, "a", 1) == 0);
+    assert(v->array[1]->length == 1);
+    assert(memcmp(v->array[1]->data, "b", 1) == 0);
+    assert(v->array[2]->length == 1);
+    assert(memcmp(v->array[2]->data, "c", 1) == 0);
+    bslice_vec_free(v);
+
+    // Single element
+    const char *input2 = "single";
+    v = tokenize_cslist((uint8_t *) input2, strlen(input2));
+    assert(v != NULL);
+    assert(v->count == 1);
+    assert(v->array[0]->length == 6);
+    assert(memcmp(v->array[0]->data, "single", 6) == 0);
+    bslice_vec_free(v);
+
+    // Empty string
+    const char *input3 = "";
+    v = tokenize_cslist((uint8_t *) input3, strlen(input3));
+    assert(v != NULL);
+    assert(v->count == 0);
+    bslice_vec_free(v);
+
+    log_success("tokenize_cslist basic cases");
+}
+
+void test_tokenize_cslist_whitespace(void) {
+    // Leading whitespace
+    const char *input1 = "  a,b,c";
+    struct ByteSliceVector *v = tokenize_cslist((uint8_t*)input1, strlen(input1));
+    assert(v != NULL);
+    assert(v->count == 3);
+    assert(v->array[0]->length == 1);
+    assert(memcmp(v->array[0]->data, "a", 1) == 0);
+    bslice_vec_free(v);
+
+    // Trailing whitespace
+    const char *input2 = "a,b,c  ";
+    v = tokenize_cslist((uint8_t*)input2, strlen(input2));
+    assert(v != NULL);
+    assert(v->count == 3);
+    assert(v->array[2]->length == 1);
+    assert(memcmp(v->array[2]->data, "c", 1) == 0);
+    bslice_vec_free(v);
+
+    // Mixed whitespace types
+    const char *input3 = " a \t,\t b  ,  c\t";
+    v = tokenize_cslist((uint8_t*)input3, strlen(input3));
+    assert(v != NULL);
+    assert(v->count == 3);
+    assert(v->array[0]->length == 1);
+    assert(memcmp(v->array[0]->data, "a", 1) == 0);
+    assert(v->array[1]->length == 1);
+    assert(memcmp(v->array[1]->data, "b", 1) == 0);
+    assert(v->array[2]->length == 1);
+    assert(memcmp(v->array[2]->data, "c", 1) == 0);
+    bslice_vec_free(v);
+
+    // Only whitespace
+    const char *input4 = "   \t  ";
+    v = tokenize_cslist((uint8_t*)input4, strlen(input4));
+    assert(v != NULL);
+    assert(v->count == 0);
+    bslice_vec_free(v);
+
+    log_success("tokenize_cslist whitespace handling");
+}
+
+void test_tokenize_cslist_empty_elements(void) {
+    // Empty elements in middle
+    const char *input1 = "a,,c";
+    struct ByteSliceVector *v = tokenize_cslist((uint8_t*)input1, strlen(input1));
+    assert(v != NULL);
+    assert(v->count == 2);
+    assert(memcmp(v->array[0]->data, "a", 1) == 0);
+    assert(memcmp(v->array[1]->data, "c", 1) == 0);
+    bslice_vec_free(v);
+
+    // Multiple empty elements
+    const char *input2 = "a,,,,,c";
+    v = tokenize_cslist((uint8_t*)input2, strlen(input2));
+    assert(v != NULL);
+    assert(v->count == 2);
+    assert(memcmp(v->array[0]->data, "a", 1) == 0);
+    assert(memcmp(v->array[1]->data, "c", 1) == 0);
+    bslice_vec_free(v);
+
+    // Empty elements with whitespace
+    const char *input3 = "a, ,  ,\t,c";
+    v = tokenize_cslist((uint8_t*)input3, strlen(input3));
+    assert(v != NULL);
+    assert(v->count == 2);
+    assert(memcmp(v->array[0]->data, "a", 1) == 0);
+    assert(memcmp(v->array[1]->data, "c", 1) == 0);
+    bslice_vec_free(v);
+
+    // Leading/trailing empty elements
+    const char *input4 = ",,,a,b,c,,,";
+    v = tokenize_cslist((uint8_t*)input4, strlen(input4));
+    assert(v != NULL);
+    assert(v->count == 3);
+    assert(memcmp(v->array[0]->data, "a", 1) == 0);
+    assert(memcmp(v->array[1]->data, "b", 1) == 0);
+    assert(memcmp(v->array[2]->data, "c", 1) == 0);
+    bslice_vec_free(v);
+
+    // Just commas
+    const char *input5 = ",,,,,";
+    v = tokenize_cslist((uint8_t*)input5, strlen(input5));
+    assert(v != NULL);
+    assert(v->count == 0);
+    bslice_vec_free(v);
+
+    log_success("tokenize_cslist empty elements");
+}
+
+void test_tokenize_cslist_http_headers(void) {
+    // Test with actual HTTP header values
+    const char *input1 = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+    struct ByteSliceVector *v = tokenize_cslist((uint8_t*)input1, strlen(input1));
+    assert(v != NULL);
+    assert(v->count == 4);
+    assert(memcmp(v->array[0]->data, "text/html", 9) == 0);
+    assert(memcmp(v->array[1]->data, "application/xhtml+xml", 20) == 0);
+    assert(memcmp(v->array[2]->data, "application/xml;q=0.9", 20) == 0);
+    assert(memcmp(v->array[3]->data, "*/*;q=0.8", 9) == 0);
+    bslice_vec_free(v);
+
+    // Test with Keep-Alive header
+    const char *input2 = "timeout=5, max=1000";
+    v = tokenize_cslist((uint8_t*)input2, strlen(input2));
+    assert(v != NULL);
+    assert(v->count == 2);
+    assert(memcmp(v->array[0]->data, "timeout=5", 9) == 0);
+    assert(memcmp(v->array[1]->data, "max=1000", 8) == 0);
+    bslice_vec_free(v);
+
+    // Test with Transfer-Encoding header
+    const char *input3 = "gzip, chunked";
+    v = tokenize_cslist((uint8_t*)input3, strlen(input3));
+    assert(v != NULL);
+    assert(v->count == 2);
+    assert(memcmp(v->array[0]->data, "gzip", 4) == 0);
+    assert(memcmp(v->array[1]->data, "chunked", 7) == 0);
+    bslice_vec_free(v);
+
+    log_success("tokenize_cslist HTTP header values");
+}
+
+void test_tokenize_cslist_special_chars(void) {
+    // Test with UTF-8 characters
+    const char *input1 = "résumé,façade,über";
+    struct ByteSliceVector *v = tokenize_cslist((uint8_t*)input1, strlen(input1));
+    assert(v != NULL);
+    assert(v->count == 3);
+    assert(v->array[0]->length == 8);  // résumé in UTF-8
+    assert(v->array[1]->length == 7);  // façade in UTF-8
+    assert(v->array[2]->length == 5);  // über in UTF-8
+    bslice_vec_free(v);
+
+    // Test with various special characters
+    const char *input2 = "!@#$,=%^&*, ()[]{}";
+    v = tokenize_cslist((uint8_t*)input2, strlen(input2));
+    assert(v != NULL);
+    assert(v->count == 3);
+    assert(memcmp(v->array[0]->data, "!@#$", 4) == 0);
+    assert(memcmp(v->array[1]->data, "=%^&*", 5) == 0);
+    assert(memcmp(v->array[2]->data, "()[]{}", 6) == 0);
+    bslice_vec_free(v);
+
+    // Test with escaped commas in quotes (should not split)
+    // const char *input3 = "\"hello,world\",simple,\"a,b,c\"";
+    // v = tokenize_cslist((uint8_t*)input3, strlen(input3));
+    // assert(v != NULL);
+    // assert(v->count == 3);
+    // assert(memcmp(v->array[0]->data, "\"hello,world\"", 13) == 0);
+    // assert(memcmp(v->array[1]->data, "simple", 6) == 0);
+    // assert(memcmp(v->array[2]->data, "\"a,b,c\"", 7) == 0);
+    // bslice_vec_free(v);
+
+    log_success("tokenize_cslist special characters");
+}
+
+void test_tokenize_cslist_edge_cases(void) {
+    // Test with very long elements
+    char *long_str = malloc(1000);
+    memset(long_str, 'a', 999);
+    long_str[999] = '\0';
+    struct ByteSliceVector *v = tokenize_cslist((uint8_t*)long_str, strlen(long_str));
+    assert(v != NULL);
+    assert(v->count == 1);
+    assert(v->array[0]->length == 999);
+    assert(memcmp(v->array[0]->data, long_str, 999) == 0);
+    bslice_vec_free(v);
+    free(long_str);
+
+    // Test with many elements
+    char *many_elements = malloc(1000);
+    for(int i = 0; i < 998; i++) {
+        many_elements[i] = (i % 2 == 0) ? 'a' : ',';
+    }
+    many_elements[998] = 'a';
+    many_elements[999] = '\0';
+    v = tokenize_cslist((uint8_t*)many_elements, strlen(many_elements));
+    assert(v != NULL);
+    assert(v->count == 500);  // 500 'a's separated by commas
+    for(size_t i = 0; i < v->count; i++) {
+        assert(v->array[i]->length == 1);
+        assert(v->array[i]->data[0] == 'a');
+    }
+    bslice_vec_free(v);
+    free(many_elements);
+
+    // Test with null bytes in middle (should handle up to null byte)
+    const char input[] = "hello\0,world";
+    v = tokenize_cslist((uint8_t*)input, sizeof(input)-1);  // include null byte
+    assert(v != NULL);
+    assert(v->count == 2);
+    assert(memcmp(v->array[0]->data, "hello", 5) == 0);
+    assert(memcmp(v->array[1]->data, "world", 5) == 0);
+    bslice_vec_free(v);
+
+    log_success("tokenize_cslist edge cases");
+}
+
+void test_get_req_body_info_basic(void) {
+    struct HttpRequest *req = http_request_init();
+    struct ReqBodyInfo rbinfo;
+
+    // Test no headers (should have zero-length body)
+    req->method = HTTP_POST;
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.is_chunked == false);
+    assert(rbinfo.content_length == 0);
+    
+    // Test basic Content-Length
+    const char *header = "Content-Length: 42";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.is_chunked == false);
+    assert(rbinfo.content_length == 42);
+
+    http_request_free(req);
+    log_success("get_req_body_info basic tests");
+}
+
+void test_get_req_body_info_transfer_encoding(void) {
+    struct HttpRequest *req = http_request_init();
+    struct ReqBodyInfo rbinfo;
+    req->method = HTTP_POST;
+
+    // Test chunked transfer encoding
+    const char *header = "Transfer-Encoding: chunked";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.is_chunked == true);
+    assert(rbinfo.content_length == 0);
+
+    // Test invalid transfer encoding (not ending in chunked) - FATAL error
+    http_request_free(req);
+    req = http_request_init();
+    req->method = HTTP_POST;
+    header = "Transfer-Encoding: gzip";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_PARSE_FATAL);
+
+    http_request_free(req);
+    req = http_request_init();
+    req->method = HTTP_POST;
+    header = "Transfer-Encoding: gzip, chunked";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.is_chunked == true);
+
+    // Test duplicate Transfer-Encoding headers
+    // http_request_free(req);
+    // req = http_request_init();
+    // req->method = HTTP_POST;
+    // header = "Transfer-Encoding: chunked";
+    // assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    // assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    // assert(get_req_body_info(req, &rbinfo) == SEVA_PARSE_BAD_REQ);
+
+    http_request_free(req);
+    log_success("get_req_body_info transfer encoding tests");
+}
+
+void test_get_req_body_info_content_length(void) {
+    struct HttpRequest *req = http_request_init();
+    struct ReqBodyInfo rbinfo;
+    req->method = HTTP_POST;
+
+    // Test zero content length (explicit)
+    const char *header = "Content-Length: 0";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.is_chunked == false);
+    assert(rbinfo.content_length == 0);
+
+    // Test maximum allowed content length
+    http_request_free(req);
+    req = http_request_init();
+    req->method = HTTP_POST;
+    header = "Content-Length: 16384";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.is_chunked == false);
+    assert(rbinfo.content_length == 16384);
+
+    // Test content length too large - now FATAL
+    http_request_free(req);
+    req = http_request_init();
+    req->method = HTTP_POST;
+    header = "Content-Length: 16385";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_PARSE_FATAL);
+
+    // Test negative content length - now FATAL
+    http_request_free(req);
+    req = http_request_init();
+    req->method = HTTP_POST;
+    header = "Content-Length: -1";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_PARSE_FATAL);
+
+    // Test invalid content length format - now FATAL
+    http_request_free(req);
+    req = http_request_init();
+    req->method = HTTP_POST;
+    header = "Content-Length: abc";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_PARSE_FATAL);
+
+    // Test multiple identical Content-Length values
+    http_request_free(req);
+    req = http_request_init();
+    req->method = HTTP_POST;
+    header = "Content-Length: 42";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.content_length == 42);
+
+    // Test multiple different Content-Length values - now FATAL
+    http_request_free(req);
+    req = http_request_init();
+    req->method = HTTP_POST;
+    const char *header1 = "Content-Length: 42";
+    const char *header2 = "Content-Length: 43";
+    assert(parse_header(req, (uint8_t *) header1, strlen(header1)) == SEVA_OK);
+    assert(parse_header(req, (uint8_t *) header2, strlen(header2)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_PARSE_FATAL);
+
+    http_request_free(req);
+    log_success("get_req_body_info content length tests");
+}
+
+void test_get_req_body_info_header_conflicts(void) {
+    struct HttpRequest *req = http_request_init();
+    struct ReqBodyInfo rbinfo;
+    req->method = HTTP_POST;
+
+    // Test both Transfer-Encoding and Content-Length
+    const char *te_header = "Transfer-Encoding: chunked";
+    const char *cl_header = "Content-Length: 42";
+    assert(parse_header(req, (uint8_t *) te_header, strlen(te_header)) == SEVA_OK);
+    assert(parse_header(req, (uint8_t *) cl_header, strlen(cl_header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_PARSE_BAD_REQ);
+
+    http_request_free(req);
+    log_success("get_req_body_info header conflict tests");
+}
+
+void test_get_req_body_info_methods(void) {
+    struct HttpRequest *req;
+    struct ReqBodyInfo rbinfo;
+    const char *cl_header = "Content-Length: 42";
+    const char *te_header = "Transfer-Encoding: chunked";
+    const char *invalid_cl = "Content-Length: abc";
+
+    // Test HEAD request (should never have body regardless of headers)
+    req = http_request_init();
+    req->method = HTTP_HEAD;
+    // No headers - should be zero length
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.is_chunked == false);
+    assert(rbinfo.content_length == 0);
+    // With Content-Length - should still be zero length
+    assert(parse_header(req, (uint8_t *) cl_header, strlen(cl_header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.is_chunked == false);
+    assert(rbinfo.content_length == 0);
+    http_request_free(req);
+
+    // Test HEAD with Transfer-Encoding - should still be zero length
+    req = http_request_init();
+    req->method = HTTP_HEAD;
+    assert(parse_header(req, (uint8_t *) te_header, strlen(te_header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.is_chunked == false);
+    assert(rbinfo.content_length == 0);
+    http_request_free(req);
+
+    // Test various methods that can have a body
+    enum HttpMethod methods[] = {HTTP_POST, HTTP_PUT, HTTP_PATCH};
+    for (size_t i = 0; i < sizeof(methods)/sizeof(methods[0]); i++) {
+        // Test with no headers
+        req = http_request_init();
+        req->method = methods[i];
+        assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+        assert(rbinfo.is_chunked == false);
+        assert(rbinfo.content_length == 0);
+        http_request_free(req);
+
+        // Test with Content-Length
+        req = http_request_init();
+        req->method = methods[i];
+        assert(parse_header(req, (uint8_t *) cl_header, strlen(cl_header)) == SEVA_OK);
+        assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+        assert(rbinfo.is_chunked == false);
+        assert(rbinfo.content_length == 42);
+        http_request_free(req);
+
+        // Test with invalid Content-Length - should be FATAL
+        req = http_request_init();
+        req->method = methods[i];
+        assert(parse_header(req, (uint8_t *) invalid_cl, strlen(invalid_cl)) == SEVA_OK);
+        assert(get_req_body_info(req, &rbinfo) == SEVA_PARSE_FATAL);
+        http_request_free(req);
+    }
+
+    log_success("get_req_body_info method specific tests");
+}
+
+void test_get_req_body_info_whitespace(void) {
+    struct HttpRequest *req = http_request_init();
+    struct ReqBodyInfo rbinfo;
+    req->method = HTTP_POST;
+
+    // Test Content-Length with whitespace
+    const char *header = "Content-Length:  42  ";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.is_chunked == false);
+    assert(rbinfo.content_length == 42);
+
+    // Test Content-Length with tabs and spaces
+    http_request_free(req);
+    req = http_request_init();
+    req->method = HTTP_POST;
+    header = "Content-Length:\t42\t";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.content_length == 42);
+
+    // Test Transfer-Encoding with whitespace
+    http_request_free(req);
+    req = http_request_init();
+    req->method = HTTP_POST;
+    header = "Transfer-Encoding:  chunked  ";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_OK);
+    assert(rbinfo.is_chunked == true);
+
+    // Test Transfer-Encoding with whitespace but invalid - should be FATAL
+    http_request_free(req);
+    req = http_request_init();
+    req->method = HTTP_POST;
+    header = "Transfer-Encoding:  gzip  ";
+    assert(parse_header(req, (uint8_t *) header, strlen(header)) == SEVA_OK);
+    assert(get_req_body_info(req, &rbinfo) == SEVA_PARSE_FATAL);
+
+    http_request_free(req);
+    log_success("get_req_body_info whitespace handling tests");
 }
 

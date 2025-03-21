@@ -33,6 +33,8 @@ void htable_print(struct HeaderTable *ht);
 
 struct Header *htable_query(struct HeaderTable *ht, char *name);
 
+struct Header *htable_query_first(struct HeaderTable *ht, char *name);
+
 void htable_query_free(struct Header *head);
 
 int htable_delete(struct HeaderTable *ht, char *name, uint8_t id);
