@@ -65,10 +65,17 @@ prefix_2##_vec_push(struct prefix_1##Vector *v, type i)                         
 }                                                                               \
                                                                                 \
 static inline bool                                                              \
-prefix_2##_vec_free(struct prefix_1##Vector *v)                                 \
+prefix_2##_vec_free(struct prefix_1##Vector *v,                                 \
+                                    void (*clean)(type, struct Allocator *))    \
 {                                                                               \
     if (!HAS_FREE(v->allocator)) {                                              \
         return false;                                                           \
+    }                                                                           \
+                                                                                \
+    if (clean != nullptr) {                                                     \
+        for (size_t i = 0; i < v->count; i++) {                                 \
+            clean(v->array[i], v->allocator);                                   \
+        }                                                                       \
     }                                                                           \
                                                                                 \
     FREE(v->allocator, v->array);                                               \

@@ -1,56 +1,50 @@
+#include "allocators/gpa.h"
+#include "http.h"
+#include "utils.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
 
-#include "utils.h"
-#include "./collections/vector.h"
-#include "./allocators/gpa.h"
-
-#define UNUSED [[maybe_unused]]
-
 int
-main(UNUSED int argc, UNUSED char *argv[])
+main(void)
 {
-    struct IntegerVector *v = integer_vec_init(get_gpalloc(), 5);
+    printf("Hello, world.\n");
 
-    assert(integer_vec_push(v, 1));
-    assert(integer_vec_push(v, 2));
-    assert(integer_vec_push(v, 3));
-    assert(integer_vec_push(v, 4));
-    assert(integer_vec_push(v, 5));
-    assert(integer_vec_push(v, 6));
+    char *test = "///abc/def/h/g/%48%65%6c%6C%6f%20%57%6F%72%6C%64//?himynameis=?";
 
-    printf("size: %zu\n", v->size);
-    printf("count: %zu\n", v->count);
+    printf("Testing \"%s\"\n", test);
 
-    for (size_t i = 0; i < v->count; i++) {
-        printf("%d ", v->array[i]);
+    struct HttpRequestTarget *t;
+
+    int res = parse_request_target(
+        get_gpalloc(),
+        byte_slice((uint8_t *) test, strlen(test)),
+        &t
+    );
+
+    assert(res == SEVA_OK);
+
+    printf("n segments = %zu\n", t->segments->count);
+
+    for (size_t i = 0; i < t->segments->count; i++) {
+        printf("[%zu] ", i);
+        struct ByteSlice slice = t->segments->array[i].slice;
+
+        for (size_t j = 0; j < slice.len; j++) {
+            putchar(slice.ptr[j]);
+        }
+
+        putchar('\n');
+    }
+
+    printf("Query: ");
+
+    for (size_t i = 0; i < t->query.len; i++) {
+        putchar(t->query.ptr[i]);
     }
 
     putchar('\n');
-
-    integer_vec_free(v);
-
-    struct BazVector *b = baz_vec_init(get_gpalloc(), 5);
-
-    assert(baz_vec_push(b, (struct Baz) { 1, 2 }));
-    assert(baz_vec_push(b, (struct Baz) { 3, 4 }));
-    assert(baz_vec_push(b, (struct Baz) { 5, 6 }));
-    assert(baz_vec_push(b, (struct Baz) { 7, 8 }));
-    assert(baz_vec_push(b, (struct Baz) { 9, 10 }));
-    assert(baz_vec_push(b, (struct Baz) { 11, 12 }));
-    assert(baz_vec_push(b, (struct Baz) { 14, 14 }));
-
-    printf("size: %zu\n", b->size);
-    printf("count: %zu\n", b->count);
-
-    for (size_t i = 0; i < b->count; i++) {
-        struct Baz baz = b->array[i];
-        printf("(%d, %d) ", baz.foo, baz.bar);
-    }
-
-    baz_vec_free(b);
 
     return EXIT_SUCCESS;
 }
