@@ -1,4 +1,6 @@
 #include <string.h>
+#include <stdint.h>
+#include "allocators/allocator.h"
 #include "utils.h"
 #include "abnf.h"
 
@@ -50,3 +52,16 @@ memdup(struct Allocator *allocator, const void *src, size_t n)
     return p;
 }
 
+int
+memncmp(const void *buf1, size_t n1, const void *buf2, size_t n2)
+{
+    if (n1 != n2) {
+        return -1;
+    }
+
+    if (n1 == 0) {
+        return 0;
+    }
+
+    return memcmp(buf1, buf2, n1);
+}

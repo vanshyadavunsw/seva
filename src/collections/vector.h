@@ -64,12 +64,12 @@ prefix_2##_vec_push(struct prefix_1##Vector *v, type i)                         
     return true;                                                                \
 }                                                                               \
                                                                                 \
-static inline bool                                                              \
+static inline int                                                               \
 prefix_2##_vec_free(struct prefix_1##Vector *v,                                 \
                                     void (*clean)(type, struct Allocator *))    \
 {                                                                               \
     if (!HAS_FREE(v->allocator)) {                                              \
-        return false;                                                           \
+        return -1;                                                              \
     }                                                                           \
                                                                                 \
     if (clean != nullptr) {                                                     \
@@ -81,7 +81,7 @@ prefix_2##_vec_free(struct prefix_1##Vector *v,                                 
     FREE(v->allocator, v->array);                                               \
     FREE(v->allocator, v);                                                      \
                                                                                 \
-    return true;                                                                \
+    return 0;                                                                   \
 }
 
 DEFINE_VECTOR_TYPE(int, Integer, integer)

@@ -65,7 +65,7 @@ static inline int is_ows(uint8_t c) {
 }
 
 static inline int is_obs_text(uint8_t c) {
-    return c >= 0x80 && c <= 0xFF;
+    return c >= 0x80;
 }
 
 #endif

@@ -46,5 +46,7 @@ main(void)
 
     putchar('\n');
 
+    free_request_target(t);
+
     return EXIT_SUCCESS;
 }

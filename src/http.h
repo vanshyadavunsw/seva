@@ -30,6 +30,7 @@ uri_seg_cleanup(struct UriSegment seg, struct Allocator *allocator)
 }
 
 struct HttpRequestTarget {
+    struct Allocator *allocator;
     struct UriSegmentVector *segments;
     struct ByteSlice query;
     bool is_asterisk_type;
@@ -40,6 +41,51 @@ parse_request_target(
     struct Allocator *allocator,
     struct ByteSlice input,
     struct HttpRequestTarget **out
+);
+
+int
+free_request_target(
+    struct HttpRequestTarget *t
+);
+
+enum HttpMethod {
+    HTTP_METHOD_UNKNOWN = -1,
+    HTTP_GET            = 0,
+    HTTP_POST           = 1,
+    HTTP_PUT            = 2,
+    HTTP_DELETE         = 3,
+    HTTP_HEAD           = 4,
+    HTTP_OPTIONS        = 5,
+    HTTP_PATCH          = 6,
+    HTTP_TRACE          = 7,
+    HTTP_CONNECT        = 8,
+    HTTP_METHODS_COUNT  = 9,
+};
+
+enum HttpVersion {
+    HTTP_VERSION_UNKNOWN,
+    HTTP_1_0,
+    HTTP_1_1,
+};
+
+struct HttpRequest {
+    struct Allocator *allocator;
+    enum HttpMethod method;
+    enum HttpVersion version;
+    struct HttpRequestTarget *target;
+};
+
+int request_init(
+    struct Allocator *allocator,
+    struct HttpRequest **out
+);
+
+int request_free(struct HttpRequest *req);
+
+int
+parse_request_line(
+    struct HttpRequest *req,
+    struct ByteSlice input
 );
 
 #endif
